@@ -1,0 +1,11 @@
+[package]
+name = "connect2axum"
+version = "0.1.0"
+description = "Runtime helpers for generated REST/OpenAPI endpoint wrappers over ConnectRPC services"
+readme = "../../README.md"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

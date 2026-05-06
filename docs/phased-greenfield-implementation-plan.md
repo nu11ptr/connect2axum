@@ -41,6 +41,15 @@ The runtime crate must not depend on Tonic or Prost. Codegen may depend on
 `connectrpc-codegen`, `buffa-codegen`, and descriptor/plugin protocol types
 because `protoc-gen-connect2axum` itself is a compiler plugin.
 
+Project-wide Rust conventions:
+
+- Prefer `flexstr` owned string types over `String` where they fit. Use `String`
+  for generated source buffers, formatted construction, and external APIs that
+  require it.
+- Use `uni_error` for project fallible code. Do not add direct `anyhow` or
+  `thiserror` dependencies unless there is a specific external integration that
+  requires them.
+
 ## Phase 1: Workspace And Quality Harness
 
 Goal: create a minimal green Rust workspace in `connect2axum` with the final

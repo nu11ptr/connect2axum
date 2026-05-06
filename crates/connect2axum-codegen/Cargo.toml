@@ -1,0 +1,21 @@
+[package]
+name = "connect2axum-codegen"
+version = "0.1.0"
+description = "Code generator for REST/OpenAPI endpoint wrappers over ConnectRPC services"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "connect2axum_codegen"
+path = "src/lib.rs"
+
+[[bin]]
+name = "protoc-gen-connect2axum"
+path = "src/bin/protoc-gen-connect2axum.rs"
+
+[dependencies]
+buffa.workspace = true
+connectrpc-codegen.workspace = true
+uni_error.workspace = true

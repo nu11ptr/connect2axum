@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/connect2axum",
+    "crates/connect2axum-codegen",
+]
+
+[workspace.package]
+authors = ["Scott Meeuwsen <smeeuwsen@gmail.com>"]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nu11ptr/connect2axum"
+
+[workspace.dependencies]
+buffa = "0.3"
+connectrpc-codegen = "0.3.3"
+flexstr = { version = "0.11", features = ["std", "str"] }
+uni_error = "0.11"
