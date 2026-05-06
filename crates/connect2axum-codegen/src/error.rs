@@ -9,6 +9,10 @@ pub enum CodegenErrKind {
     InvalidBooleanOption,
     InvalidServiceStateOption,
     FileToGenerateNotFound,
+    InvalidDescriptor,
+    InvalidHttpAnnotation,
+    UnsupportedHttpRule,
+    PathFieldNotFound,
 }
 
 impl UniKind for CodegenErrKind {
@@ -23,6 +27,10 @@ impl UniKind for CodegenErrKind {
             Self::FileToGenerateNotFound => {
                 Some("file_to_generate was not found in the descriptor set".into())
             }
+            Self::InvalidDescriptor => Some("invalid protobuf descriptor".into()),
+            Self::InvalidHttpAnnotation => Some("invalid google.api.http annotation".into()),
+            Self::UnsupportedHttpRule => Some("unsupported google.api.http rule".into()),
+            Self::PathFieldNotFound => Some("google.api.http path field was not found".into()),
         }
     }
 }

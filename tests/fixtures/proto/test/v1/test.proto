@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package test.v1;
+
+import "google/api/annotations.proto";
+
+// The test service definition.
+service Test1 {
+    // Sends a test
+    rpc DoTest (TestRequest) returns (TestReply) {
+        option (google.api.http) = {
+          post: "/test/{data}/testing/{test_type}"
+          body: "tester"
+        };
+    }
+}
+  
+// The request message containing the test data.
+message TestRequest {
+  // test data
+  string data = 1;
+  // test type
+  Tester test_type = 2;
+  // tester
+  Nested tester = 8;
+}
+
+enum Tester {
+  BAD_TEST = 0;
+  GOOD_TEST = 1;
+  AVERAGE_TEST = 2;
+}
+
+message Nested {
+  string data = 1;
+  bool bool_data = 2;
+}
+
+// The response message containing the test result.
+message TestReply {
+  // The message containing the test result.
+  string message = 1;
+}
+
+service Test2 {
+  rpc DoTest (TestRequest) returns (TestReply) {
+    option (google.api.http) = {
+      post: "/test/{data}/testing/{test_type}"
+      body: "tester"
+    };
+  }
+}
