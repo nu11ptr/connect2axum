@@ -68,9 +68,14 @@ name = "connect2axum-codegen"
 version = "0.1.0"
 dependencies = [
  "buffa",
+ "buffa-codegen",
  "connectrpc-codegen",
  "flexstr",
  "heck",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "syn",
  "uni_error",
 ]
 

@@ -145,14 +145,18 @@ pub fn plan_file_shapes(
 
 struct RequestPlanner<'a> {
     ir: &'a DescriptorIr,
-    resolver: &'a TypeResolver,
+    resolver: &'a TypeResolver<'a>,
     options: &'a CodegenOptions,
     generated_dtos: Vec<GeneratedDto>,
     dto_registry: HashMap<(GeneratedDtoKind, SharedStr), Vec<GeneratedDto>>,
 }
 
 impl<'a> RequestPlanner<'a> {
-    fn new(ir: &'a DescriptorIr, resolver: &'a TypeResolver, options: &'a CodegenOptions) -> Self {
+    fn new(
+        ir: &'a DescriptorIr,
+        resolver: &'a TypeResolver<'a>,
+        options: &'a CodegenOptions,
+    ) -> Self {
         Self {
             ir,
             resolver,
@@ -514,8 +518,8 @@ mod tests {
     use buffa::encoding::{Tag, WireType};
     use buffa::{MessageField, UnknownField, UnknownFieldData};
     use connectrpc_codegen::codegen::descriptor::{
-        DescriptorProto, FieldDescriptorProto, FileDescriptorProto, MethodDescriptorProto,
-        MethodOptions, ServiceDescriptorProto,
+        DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorProto,
+        MethodDescriptorProto, MethodOptions, ServiceDescriptorProto,
         field_descriptor_proto::{Label, Type},
     };
 
@@ -665,19 +669,30 @@ mod tests {
 
     #[test]
     fn google_protobuf_empty_plans_as_empty_request() {
-        let ir = build_ir(&request(vec![FileDescriptorProto {
-            name: Some("test/v1/empty.proto".into()),
-            package: Some("test.v1".into()),
-            service: vec![service(vec![method(
-                "Ping",
-                ".google.protobuf.Empty",
-                http_rule(2, "/ping", None),
-            )])],
-            ..Default::default()
-        }]))
+        let ir = build_ir(&request(vec![
+            FileDescriptorProto {
+                name: Some("google/protobuf/empty.proto".into()),
+                package: Some("google.protobuf".into()),
+                message_type: vec![DescriptorProto {
+                    name: Some("Empty".into()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            FileDescriptorProto {
+                name: Some("test/v1/empty.proto".into()),
+                package: Some("test.v1".into()),
+                service: vec![service(vec![method(
+                    "Ping",
+                    ".google.protobuf.Empty",
+                    http_rule(2, "/ping", None),
+                )])],
+                ..Default::default()
+            },
+        ]))
         .unwrap();
 
-        let shapes = plan_file_shapes(&ir, &ir.files[0], &CodegenOptions::default()).unwrap();
+        let shapes = plan_file_shapes(&ir, &ir.files[1], &CodegenOptions::default()).unwrap();
 
         assert!(shapes.request_shapes[0].path_fields.is_empty());
         assert!(shapes.request_shapes[0].query_shape.is_none());
@@ -722,6 +737,10 @@ mod tests {
                     ..Default::default()
                 },
             ],
+            enum_type: vec![EnumDescriptorProto {
+                name: Some("Tester".into()),
+                ..Default::default()
+            }],
             service: vec![service(methods)],
             ..Default::default()
         }

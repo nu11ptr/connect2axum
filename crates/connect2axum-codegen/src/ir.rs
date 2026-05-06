@@ -17,9 +17,11 @@ const MESSAGE_FIELD_PATH: i32 = 2;
 const MESSAGE_NESTED_TYPE_PATH: i32 = 3;
 const SERVICE_METHOD_PATH: i32 = 2;
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct DescriptorIr {
     pub files: Vec<ProtoFile>,
+    pub descriptor_files: Vec<FileDescriptorProto>,
+    pub files_to_generate: Vec<SharedStr>,
 }
 
 impl DescriptorIr {
@@ -220,7 +222,15 @@ pub fn build_ir(request: &CodeGeneratorRequest) -> CodegenResult<DescriptorIr> {
         })
         .collect::<CodegenResult<Vec<_>>>()?;
 
-    Ok(DescriptorIr { files })
+    Ok(DescriptorIr {
+        files,
+        descriptor_files: request.proto_file.clone(),
+        files_to_generate: request
+            .file_to_generate
+            .iter()
+            .map(|file_name| file_name.as_str().to_owned_opt())
+            .collect(),
+    })
 }
 
 fn build_messages(
