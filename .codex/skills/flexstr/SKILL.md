@@ -15,10 +15,12 @@ to build output text incrementally.
 
 ## Types
 
-- `SharedStr`: default owned string type for public structs, long-lived values,
-  cross-thread values, maps, and cloned names.
-- `LocalStr`: cheaper owned string type for codegen-internal, thread-local
-  values that do not need `Send` or `Sync`.
+- `SharedStr`: main/default owned string type because it is `Send` + `Sync`;
+  use it for public structs, long-lived values, cross-thread values, maps, and
+  cloned names.
+- `LocalStr`: faster owned string type, but not `Send` or `Sync`; use it only
+  when the value is definitely local to one thread and will not cross task,
+  worker, public API, or shared-state boundaries.
 - `String`: use for mutable construction, generated file contents, formatting
   buffers, or unavoidable external API boundaries.
 
