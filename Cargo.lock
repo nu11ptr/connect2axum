@@ -16,9 +16,9 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "buffa"
-version = "0.3.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df3fea50199859017c80584fef221c61abb882c69ed5b6e30a0bf75864e3c505"
+checksum = "bf099528faaa7841b5e6dec4a421c3983b0893f87600f84f35b033362278153b"
 dependencies = [
  "base64",
  "bytes",
@@ -31,9 +31,9 @@ dependencies = [
 
 [[package]]
 name = "buffa-codegen"
-version = "0.3.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f9ddcb25f0dde4d82e0a1128b0c459feba775e24dfa7cb0c3f4a9d61abfa245"
+checksum = "a50dd3ca45146a2878eb7854e8c54d1b299d4e0268d3ff1bebf78a15b78982d3"
 dependencies = [
  "buffa",
  "buffa-descriptor",
@@ -46,9 +46,9 @@ dependencies = [
 
 [[package]]
 name = "buffa-descriptor"
-version = "0.3.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a0794ed1f8a0c6ab168c70258e21cf74ca7b87a7dd888a0a69745b075f2d351"
+checksum = "7b60f63b38417e539089f6aaca6622a60dbdf8f656663c81e6870ae0788d2060"
 dependencies = [
  "buffa",
 ]
@@ -69,14 +69,15 @@ version = "0.1.0"
 dependencies = [
  "buffa",
  "connectrpc-codegen",
+ "flexstr",
  "uni_error",
 ]
 
 [[package]]
 name = "connectrpc-codegen"
-version = "0.3.3"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "109a2352193792931d41e5cb3b048985371d5c6505f736f9b9a7ae606d5a0050"
+checksum = "b3b8cec56e17c3cb4f02083b2607ff1a9a17566305cec807bd9d82a529e19bc0"
 dependencies = [
  "anyhow",
  "buffa",
@@ -87,6 +88,24 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "flexstr"
+version = "0.11.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f081fc7122d1952bc5a0a2cfc7f261499853a28471c406a60b4ca579fa54bc6e"
+dependencies = [
+ "flexstr_support",
+ "inline_flexstr",
+ "prost",
+ "serde",
+]
+
+[[package]]
+name = "flexstr_support"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6588f386366ffb2b146a8aaa5327596f5da43d2085b5e618b8d9032b6d0ab3f9"
 
 [[package]]
 name = "foldhash"
@@ -109,6 +128,17 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
+name = "inline_flexstr"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e57f2dafafe6ebec2bfc46ae1ee6cbc2334ddb0566e8596fd96801acfa6dfc4"
+dependencies = [
+ "flexstr_support",
+ "prost",
+ "serde",
+]
 
 [[package]]
 name = "itoa"
@@ -145,6 +175,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "prost"
+version = "0.14.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2ea70524a2f82d518bce41317d0fae74151505651af45faf1ffbd6fd33f0568"
+dependencies = [
+ "bytes",
 ]
 
 [[package]]

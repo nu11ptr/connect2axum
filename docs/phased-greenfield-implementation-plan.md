@@ -103,20 +103,30 @@ Implementation:
   - `connect_module=crate::connect`
   - `openapi=true|false`
   - `runtime_module=::connect2axum`
-  - `service_state=package.Service=crate::MyService`
+  - `streaming_content_type=application/x-ndjson`
+  - `value_suffix=__`
+  - `type_suffix=__`
+  - `body_message_suffix=Body`
+  - `query_message_suffix=Query`
+  - `service_state=package.Service:crate::MyService`
 - Default options:
   - `buffa_module=crate::proto`
   - `connect_module=crate::connect`
   - `openapi=false`
   - `runtime_module=::connect2axum`
+  - `streaming_content_type=application/x-ndjson`
+  - `value_suffix=__`
+  - `type_suffix=__`
+  - `body_message_suffix=Body`
+  - `query_message_suffix=Query`
   - no explicit `service_state`; generated routers are generic over
     `Arc<S>` where `S` implements the generated Connect service trait.
 - Reject unknown options with an error response instead of panic.
-- Define the output contract:
-  - one generated `*.connect2axum.rs` file per input proto that has at least one
-    service with at least one `google.api.http` binding,
-  - one package stitcher file per package when using `strategy: all`,
-  - no output for files with no REST bindings.
+- Define the Phase 2 placeholder output contract:
+  - one generated `*.connect2axum.rs` file per `file_to_generate`,
+  - no generated file when `file_to_generate` is empty,
+  - actual filtering to files with `google.api.http` REST bindings starts in
+    Phase 3 after descriptor/annotation parsing exists.
 - Keep generated content as comments/placeholders in this phase, but make file
   names and package mapping final.
 - Add tests for:
