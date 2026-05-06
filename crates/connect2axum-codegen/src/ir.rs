@@ -26,6 +26,13 @@ impl DescriptorIr {
     pub fn file(&self, name: &str) -> Option<&ProtoFile> {
         self.files.iter().find(|file| file.name.as_ref() == name)
     }
+
+    pub fn message(&self, full_name: &str) -> Option<&Message> {
+        self.files
+            .iter()
+            .flat_map(|file| file.messages.iter())
+            .find_map(|message| find_message(message, full_name))
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -370,6 +377,10 @@ fn validate_http_binding(
             ),
         )
     })?);
+    if input_type.as_ref() == "google.protobuf.Empty" && binding.path_variables.is_empty() {
+        return Ok(());
+    }
+
     let input = message_index.get(&input_type).ok_or_else(|| {
         UniError::from_kind_context(
             CodegenErrKind::InvalidDescriptor,
@@ -437,6 +448,17 @@ fn index_messages(messages: &[Message], message_index: &mut HashMap<SharedStr, M
         message_index.insert(message.full_name.clone(), message.clone());
         index_messages(&message.messages, message_index);
     }
+}
+
+fn find_message<'a>(message: &'a Message, full_name: &str) -> Option<&'a Message> {
+    if message.full_name.as_ref() == full_name {
+        return Some(message);
+    }
+
+    message
+        .messages
+        .iter()
+        .find_map(|message| find_message(message, full_name))
 }
 
 fn required_name<'a>(

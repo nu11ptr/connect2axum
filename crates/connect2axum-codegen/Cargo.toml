@@ -19,4 +19,5 @@ path = "src/bin/protoc-gen-connect2axum.rs"
 buffa.workspace = true
 connectrpc-codegen.workspace = true
 flexstr.workspace = true
+heck.workspace = true
 uni_error.workspace = true

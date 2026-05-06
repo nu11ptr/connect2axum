@@ -13,6 +13,9 @@ pub enum CodegenErrKind {
     InvalidHttpAnnotation,
     UnsupportedHttpRule,
     PathFieldNotFound,
+    RequestMessageNotFound,
+    BodyFieldNotFound,
+    TypeResolutionFailed,
 }
 
 impl UniKind for CodegenErrKind {
@@ -31,6 +34,9 @@ impl UniKind for CodegenErrKind {
             Self::InvalidHttpAnnotation => Some("invalid google.api.http annotation".into()),
             Self::UnsupportedHttpRule => Some("unsupported google.api.http rule".into()),
             Self::PathFieldNotFound => Some("google.api.http path field was not found".into()),
+            Self::RequestMessageNotFound => Some("request message was not found".into()),
+            Self::BodyFieldNotFound => Some("google.api.http body field was not found".into()),
+            Self::TypeResolutionFailed => Some("protobuf type could not be resolved".into()),
         }
     }
 }

@@ -15,4 +15,5 @@ repository = "https://github.com/nu11ptr/connect2axum"
 buffa = "0.5"
 connectrpc-codegen = "0.4"
 flexstr = { version = "0.11", features = ["std", "str"] }
+heck = "0.5"
 uni_error = "0.11"
