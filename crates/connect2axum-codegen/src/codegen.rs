@@ -11,7 +11,8 @@ use crate::ir::{CommentSet, DescriptorIr, HttpVerb, Method, ProtoFile, Service};
 use crate::options::CodegenOptions;
 use crate::resolver::TypeResolver;
 use crate::shape::{
-    FileShapes, GeneratedDto, RequestPartShape, RequestShape, ShapeField, plan_file_shapes,
+    FieldSource, FileShapes, GeneratedDto, RequestPartShape, RequestReconstruction, RequestShape,
+    ShapeField, plan_file_shapes,
 };
 
 const REST_MODULE_SUFFIX: &str = "_rest";
@@ -109,7 +110,6 @@ impl<'a> RustGenerator<'a> {
             .map(|method| self.handler_tokens(service, method))
             .collect::<CodegenResult<Vec<_>>>()?;
         let router_item = self.router_tokens(service)?;
-        let not_implemented = not_implemented_response_tokens();
 
         Ok(quote! {
             /// Generated axum handlers and router.
@@ -127,8 +127,6 @@ impl<'a> RustGenerator<'a> {
                 #(#handler_items)*
 
                 #router_item
-
-                #not_implemented
             }
         })
     }
@@ -149,9 +147,13 @@ impl<'a> RustGenerator<'a> {
             self.resolver.value_ident("service", self.options).as_ref(),
             "service binding",
         )?;
-        let path_value = parse_ident(
-            self.resolver.value_ident("path", self.options).as_ref(),
-            "path binding",
+        let request_value = parse_ident(
+            self.resolver.value_ident("request", self.options).as_ref(),
+            "request binding",
+        )?;
+        let ctx_value = parse_ident(
+            self.resolver.value_ident("ctx", self.options).as_ref(),
+            "context binding",
         )?;
         let query_value = parse_ident(
             self.resolver.value_ident("query", self.options).as_ref(),
@@ -171,29 +173,29 @@ impl<'a> RustGenerator<'a> {
             self.resolver.value_ident("body", self.options).as_ref(),
             "body binding",
         )?;
+        let runtime = parse_path(self.options.runtime_module.as_ref(), "runtime module")?;
+        let output_type = parse_type(
+            self.resolver
+                .owned_message_type(method.output_type.as_ref())?
+                .as_str(),
+            "method output type",
+        )?;
+        let request_view_type = parse_type(
+            &format!("{}<'static>", shape.request_view_type.as_str()),
+            "method request view type",
+        )?;
 
         let mut params = vec![quote! {
             State(#service_value): State<Arc<S>>
         }];
-        let mut unused_bindings = vec![quote! {
-            let _ = #service_value;
-        }];
 
-        if let Some(path_type) = path_extractor_type(&shape.path_fields)? {
-            params.push(quote! {
-                Path(#path_value): Path<#path_type>
-            });
-            unused_bindings.push(quote! {
-                let _ = #path_value;
-            });
+        if let Some(path_param) = path_extractor_param(shape, &self.resolver, self.options)? {
+            params.push(path_param);
         }
 
         if let Some(query_type) = shape.query_shape.as_ref().map(part_type).transpose()? {
             params.push(quote! {
                 Query(#query_value): Query<#query_type>
-            });
-            unused_bindings.push(quote! {
-                let _ = #query_value;
             });
         }
 
@@ -203,31 +205,39 @@ impl<'a> RustGenerator<'a> {
         params.push(quote! {
             #extensions_value: Extensions
         });
-        unused_bindings.push(quote! {
-            let _ = #headers_value;
-        });
-        unused_bindings.push(quote! {
-            let _ = #extensions_value;
-        });
 
         if let Some(body_type) = shape.body_shape.as_ref().map(part_type).transpose()? {
             params.push(quote! {
                 Json(#body_value): Json<#body_type>
             });
-            unused_bindings.push(quote! {
-                let _ = #body_value;
-            });
         }
 
+        let request_reconstruction = request_reconstruction_tokens(
+            shape,
+            &request_value,
+            &query_value,
+            &body_value,
+            &self.resolver,
+            self.options,
+        )?;
+
         Ok(quote! {
-            async fn #method_ident<S>(
+            pub async fn #method_ident<S>(
                 #(#params),*
             ) -> http::Response<axum::body::Body>
             where
                 S: #service_trait + Send + Sync + 'static,
             {
-                #(#unused_bindings)*
-                not_implemented_response()
+                let #ctx_value = #runtime::request_context(#headers_value, #extensions_value);
+                #request_reconstruction
+                let #request_value = match #runtime::owned_view::<#request_view_type>(&#request_value) {
+                    Ok(#request_value) => #request_value,
+                    Err(err) => return #runtime::error_response(err),
+                };
+
+                #runtime::service_response::<#output_type, _>(
+                    #service_value.#method_ident(#ctx_value, #request_value).await
+                )
             }
         })
     }
@@ -342,17 +352,6 @@ fn dto_field_tokens(field: &ShapeField) -> CodegenResult<TokenStream> {
     })
 }
 
-fn not_implemented_response_tokens() -> TokenStream {
-    quote! {
-        fn not_implemented_response() -> http::Response<axum::body::Body> {
-            http::Response::builder()
-                .status(http::StatusCode::NOT_IMPLEMENTED)
-                .body(axum::body::Body::from("not implemented"))
-                .expect("static not implemented response should build")
-        }
-    }
-}
-
 fn comment_attrs(comments: &CommentSet) -> Vec<TokenStream> {
     comments
         .leading_detached
@@ -376,21 +375,157 @@ fn service_module_name(service_name: &str) -> String {
     )
 }
 
-fn path_extractor_type(path_fields: &[ShapeField]) -> CodegenResult<Option<Type>> {
-    match path_fields {
+fn path_extractor_param(
+    shape: &RequestShape,
+    resolver: &TypeResolver<'_>,
+    options: &CodegenOptions,
+) -> CodegenResult<Option<TokenStream>> {
+    match shape.path_fields.as_slice() {
         [] => Ok(None),
-        [field] => parse_type(field.rust_type.as_str(), "path extractor type").map(Some),
+        [field] => {
+            let binding = path_field_binding(field, resolver, options)?;
+            let field_type = parse_type(field.rust_type.as_str(), "path extractor type")?;
+            Ok(Some(quote! {
+                Path(#binding): Path<#field_type>
+            }))
+        }
         fields => {
+            let bindings = fields
+                .iter()
+                .map(|field| path_field_binding(field, resolver, options))
+                .collect::<CodegenResult<Vec<_>>>()?;
             let field_types = fields
                 .iter()
                 .map(|field| parse_type(field.rust_type.as_str(), "path extractor type"))
                 .collect::<CodegenResult<Vec<_>>>()?;
-            parse_quoted_type(quote! {
+            let tuple_type = parse_quoted_type(quote! {
                 (#(#field_types),*)
-            })
-            .map(Some)
+            })?;
+            Ok(Some(quote! {
+                Path((#(#bindings),*)): Path<#tuple_type>
+            }))
         }
     }
+}
+
+fn request_reconstruction_tokens(
+    shape: &RequestShape,
+    request_value: &Ident,
+    query_value: &Ident,
+    body_value: &Ident,
+    resolver: &TypeResolver<'_>,
+    options: &CodegenOptions,
+) -> CodegenResult<TokenStream> {
+    let request_type = parse_type(shape.request_type.as_str(), "method request type")?;
+
+    match &shape.reconstruction {
+        RequestReconstruction::Empty => Ok(quote! {
+            let #request_value = #request_type::default();
+        }),
+        RequestReconstruction::VerbatimBody => Ok(quote! {
+            let #request_value = #body_value;
+        }),
+        RequestReconstruction::VerbatimQuery => Ok(quote! {
+            let #request_value = #query_value;
+        }),
+        RequestReconstruction::FromParts { fields } => {
+            let assignments = fields
+                .iter()
+                .map(|assignment| {
+                    let field_ident = parse_ident(
+                        &make_field_ident(assignment.field.as_ref()).to_string(),
+                        "request field",
+                    )?;
+                    let value = field_source_expr(
+                        assignment.field.as_ref(),
+                        assignment.source,
+                        shape,
+                        query_value,
+                        body_value,
+                        resolver,
+                        options,
+                    )?;
+                    Ok(quote! {
+                        #field_ident: #value
+                    })
+                })
+                .collect::<CodegenResult<Vec<_>>>()?;
+
+            Ok(quote! {
+                let #request_value = #request_type {
+                    #(#assignments,)*
+                    ..::core::default::Default::default()
+                };
+            })
+        }
+    }
+}
+
+fn field_source_expr(
+    field_name: &str,
+    source: FieldSource,
+    shape: &RequestShape,
+    query_value: &Ident,
+    body_value: &Ident,
+    resolver: &TypeResolver<'_>,
+    options: &CodegenOptions,
+) -> CodegenResult<TokenStream> {
+    match source {
+        FieldSource::Path => {
+            let binding = parse_ident(
+                resolver.value_ident(field_name, options).as_ref(),
+                "path field binding",
+            )?;
+            Ok(quote! { #binding })
+        }
+        FieldSource::Body => part_field_expr(field_name, shape.body_shape.as_ref(), body_value),
+        FieldSource::Query => part_field_expr(field_name, shape.query_shape.as_ref(), query_value),
+    }
+}
+
+fn part_field_expr(
+    field_name: &str,
+    part: Option<&RequestPartShape>,
+    binding: &Ident,
+) -> CodegenResult<TokenStream> {
+    match part {
+        Some(RequestPartShape::GeneratedDto { .. }) => {
+            let field_ident = parse_ident(
+                &make_field_ident(field_name).to_string(),
+                "generated DTO field",
+            )?;
+            Ok(quote! { #binding.#field_ident })
+        }
+        Some(RequestPartShape::ExistingMessage { field, .. })
+            if field.field.name.as_ref() == field_name =>
+        {
+            Ok(quote! { #binding })
+        }
+        Some(RequestPartShape::VerbatimRequest { .. }) => {
+            let field_ident = parse_ident(
+                &make_field_ident(field_name).to_string(),
+                "request part field",
+            )?;
+            Ok(quote! { #binding.#field_ident })
+        }
+        _ => Err(UniError::from_kind_context(
+            CodegenErrKind::InvalidDescriptor,
+            format!("request field {field_name} was not found in planned request part"),
+        )),
+    }
+}
+
+fn path_field_binding(
+    field: &ShapeField,
+    resolver: &TypeResolver<'_>,
+    options: &CodegenOptions,
+) -> CodegenResult<Ident> {
+    parse_ident(
+        resolver
+            .value_ident(field.field.name.as_ref(), options)
+            .as_ref(),
+        "path field binding",
+    )
 }
 
 fn part_type(part: &RequestPartShape) -> CodegenResult<Type> {
@@ -485,9 +620,9 @@ pub mod test_service_rest {
         pub test_type: crate::proto::test::v1::Tester,
         pub tester: crate::proto::test::v1::Nested,
     }
-    async fn get_one<S>(
+    pub async fn get_one<S>(
         State(service__): State<Arc<S>>,
-        Path(path__): Path<::std::string::String>,
+        Path(data__): Path<::std::string::String>,
         Query(query__): Query<TestRequestQuery__>,
         headers__: HeaderMap,
         extensions__: Extensions,
@@ -495,16 +630,29 @@ pub mod test_service_rest {
     where
         S: crate::connect::test::v1::TestService + Send + Sync + 'static,
     {
-        let _ = service__;
-        let _ = path__;
-        let _ = query__;
-        let _ = headers__;
-        let _ = extensions__;
-        not_implemented_response()
+        let ctx__ = ::connect2axum::request_context(headers__, extensions__);
+        let request__ = crate::proto::test::v1::TestRequest {
+            data: data__,
+            test_type: query__.test_type,
+            tester: query__.tester,
+            ..::core::default::Default::default()
+        };
+        let request__ = match ::connect2axum::owned_view::<
+            crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
+        >(&request__) {
+            Ok(request__) => request__,
+            Err(err) => return ::connect2axum::error_response(err),
+        };
+        ::connect2axum::service_response::<
+            crate::proto::test::v1::TestResponse,
+            _,
+        >(service__.get_one(ctx__, request__).await)
     }
-    async fn do_test<S>(
+    pub async fn do_test<S>(
         State(service__): State<Arc<S>>,
-        Path(path__): Path<(::std::string::String, crate::proto::test::v1::Tester)>,
+        Path(
+            (data__, test_type__),
+        ): Path<(::std::string::String, crate::proto::test::v1::Tester)>,
         headers__: HeaderMap,
         extensions__: Extensions,
         Json(body__): Json<crate::proto::test::v1::Nested>,
@@ -512,12 +660,66 @@ pub mod test_service_rest {
     where
         S: crate::connect::test::v1::TestService + Send + Sync + 'static,
     {
-        let _ = service__;
-        let _ = path__;
-        let _ = headers__;
-        let _ = extensions__;
-        let _ = body__;
-        not_implemented_response()
+        let ctx__ = ::connect2axum::request_context(headers__, extensions__);
+        let request__ = crate::proto::test::v1::TestRequest {
+            data: data__,
+            test_type: test_type__,
+            tester: body__,
+            ..::core::default::Default::default()
+        };
+        let request__ = match ::connect2axum::owned_view::<
+            crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
+        >(&request__) {
+            Ok(request__) => request__,
+            Err(err) => return ::connect2axum::error_response(err),
+        };
+        ::connect2axum::service_response::<
+            crate::proto::test::v1::TestResponse,
+            _,
+        >(service__.do_test(ctx__, request__).await)
+    }
+    pub async fn patch_all<S>(
+        State(service__): State<Arc<S>>,
+        headers__: HeaderMap,
+        extensions__: Extensions,
+        Json(body__): Json<crate::proto::test::v1::TestRequest>,
+    ) -> http::Response<axum::body::Body>
+    where
+        S: crate::connect::test::v1::TestService + Send + Sync + 'static,
+    {
+        let ctx__ = ::connect2axum::request_context(headers__, extensions__);
+        let request__ = body__;
+        let request__ = match ::connect2axum::owned_view::<
+            crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
+        >(&request__) {
+            Ok(request__) => request__,
+            Err(err) => return ::connect2axum::error_response(err),
+        };
+        ::connect2axum::service_response::<
+            crate::proto::test::v1::TestResponse,
+            _,
+        >(service__.patch_all(ctx__, request__).await)
+    }
+    pub async fn ping<S>(
+        State(service__): State<Arc<S>>,
+        headers__: HeaderMap,
+        extensions__: Extensions,
+    ) -> http::Response<axum::body::Body>
+    where
+        S: crate::connect::test::v1::TestService + Send + Sync + 'static,
+    {
+        let ctx__ = ::connect2axum::request_context(headers__, extensions__);
+        let request__ = crate::proto::test::v1::EmptyRequest::default();
+        let request__ = match ::connect2axum::owned_view::<
+            crate::proto::test::v1::__buffa::view::EmptyRequestView<'static>,
+        >(&request__) {
+            Ok(request__) => request__,
+            Err(err) => return ::connect2axum::error_response(err),
+        };
+        ::connect2axum::service_response::<
+            crate::proto::test::v1::TestResponse,
+            _,
+        >(service__.ping(ctx__, request__).await)
     }
     pub fn make_router<S>(service: Arc<S>) -> axum::Router
     where
@@ -526,13 +728,9 @@ pub mod test_service_rest {
         axum::Router::new()
             .route("/test/{data}", axum::routing::get(get_one::<S>))
             .route("/test/{data}/testing/{test_type}", axum::routing::post(do_test::<S>))
+            .route("/test", axum::routing::patch(patch_all::<S>))
+            .route("/ping", axum::routing::get(ping::<S>))
             .with_state(service)
-    }
-    fn not_implemented_response() -> http::Response<axum::body::Body> {
-        http::Response::builder()
-            .status(http::StatusCode::NOT_IMPLEMENTED)
-            .body(axum::body::Body::from("not implemented"))
-            .expect("static not implemented response should build")
     }
 }
 "#
@@ -540,7 +738,7 @@ pub mod test_service_rest {
     }
 
     #[test]
-    fn generated_skeleton_compiles_in_temp_crate() {
+    fn generated_handlers_compile_and_call_service() {
         let content = generated_content();
         let temp_dir = temp_crate_dir();
         fs::create_dir_all(temp_dir.join("src")).expect("temp src dir");
@@ -548,14 +746,14 @@ pub mod test_service_rest {
         fs::write(temp_dir.join("src/lib.rs"), temp_lib_rs(&content)).expect("temp lib.rs");
 
         let output = Command::new("cargo")
-            .args(["check", "--quiet"])
+            .args(["test", "--quiet"])
             .current_dir(&temp_dir)
             .output()
-            .expect("cargo check runs");
+            .expect("cargo test runs");
 
         if !output.status.success() {
             panic!(
-                "generated crate did not compile\nstdout:\n{}\nstderr:\n{}\nsource:\n{}",
+                "generated crate tests failed\nstdout:\n{}\nstderr:\n{}\nsource:\n{}",
                 String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr),
                 content
@@ -602,6 +800,14 @@ pub mod test_service_rest {
                     name: Some("Nested".into()),
                     ..Default::default()
                 },
+                DescriptorProto {
+                    name: Some("EmptyRequest".into()),
+                    ..Default::default()
+                },
+                DescriptorProto {
+                    name: Some("TestResponse".into()),
+                    ..Default::default()
+                },
             ],
             enum_type: vec![EnumDescriptorProto {
                 name: Some("Tester".into()),
@@ -610,11 +816,22 @@ pub mod test_service_rest {
             service: vec![ServiceDescriptorProto {
                 name: Some("TestService".into()),
                 method: vec![
-                    method("GetOne", http_rule(2, "/test/{data}", None)),
+                    method(
+                        "GetOne",
+                        ".test.v1.TestRequest",
+                        http_rule(2, "/test/{data}", None),
+                    ),
                     method(
                         "DoTest",
+                        ".test.v1.TestRequest",
                         http_rule(4, "/test/{data}/testing/{test_type}", Some("tester")),
                     ),
+                    method(
+                        "PatchAll",
+                        ".test.v1.TestRequest",
+                        http_rule(6, "/test", Some("*")),
+                    ),
+                    method("Ping", ".test.v1.EmptyRequest", http_rule(2, "/ping", None)),
                 ],
                 ..Default::default()
             }],
@@ -622,10 +839,14 @@ pub mod test_service_rest {
         }
     }
 
-    fn method(name: &str, options: MessageField<MethodOptions>) -> MethodDescriptorProto {
+    fn method(
+        name: &str,
+        input_type: &str,
+        options: MessageField<MethodOptions>,
+    ) -> MethodDescriptorProto {
         MethodDescriptorProto {
             name: Some(name.into()),
-            input_type: Some(".test.v1.TestRequest".into()),
+            input_type: Some(input_type.into()),
             output_type: Some(".test.v1.TestResponse".into()),
             options,
             ..Default::default()
@@ -685,122 +906,457 @@ serde = { version = "1", features = ["derive"] }
     }
 
     fn temp_lib_rs(generated: &str) -> String {
-        format!(
-            r#"extern crate self as axum;
+        let mut source = r#"extern crate self as axum;
+extern crate self as buffa;
+extern crate self as connect2axum;
+extern crate self as connectrpc;
 extern crate self as http;
 
 pub struct Json<T>(pub T);
 
-pub mod body {{
-    #[derive(Clone, Debug)]
-    pub struct Body;
+pub mod body {
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct Body(pub &'static str);
 
-    impl Body {{
-        pub fn from<T>(_value: T) -> Self {{
-            Self
-        }}
-    }}
-}}
+    impl Body {
+        pub fn from<T>(_value: T) -> Self {
+            Self("body")
+        }
+    }
+}
 
-pub mod extract {{
+pub mod extract {
     pub struct Path<T>(pub T);
     pub struct Query<T>(pub T);
     pub struct State<T>(pub T);
-}}
+}
 
-pub mod routing {{
+pub mod routing {
     pub struct MethodRouter;
 
-    pub fn delete<H>(_handler: H) -> MethodRouter {{
+    pub fn delete<H>(_handler: H) -> MethodRouter {
         MethodRouter
-    }}
+    }
 
-    pub fn get<H>(_handler: H) -> MethodRouter {{
+    pub fn get<H>(_handler: H) -> MethodRouter {
         MethodRouter
-    }}
+    }
 
-    pub fn patch<H>(_handler: H) -> MethodRouter {{
+    pub fn patch<H>(_handler: H) -> MethodRouter {
         MethodRouter
-    }}
+    }
 
-    pub fn post<H>(_handler: H) -> MethodRouter {{
+    pub fn post<H>(_handler: H) -> MethodRouter {
         MethodRouter
-    }}
+    }
 
-    pub fn put<H>(_handler: H) -> MethodRouter {{
+    pub fn put<H>(_handler: H) -> MethodRouter {
         MethodRouter
-    }}
-}}
+    }
+}
 
 pub struct Router;
 
-impl Router {{
-    pub fn new() -> Self {{
+impl Router {
+    pub fn new() -> Self {
         Self
-    }}
+    }
 
-    pub fn route(self, _path: &str, _method: routing::MethodRouter) -> Self {{
+    pub fn route(self, _path: &str, _method: routing::MethodRouter) -> Self {
         self
-    }}
+    }
 
-    pub fn with_state<S>(self, _state: S) -> Self {{
+    pub fn with_state<S>(self, _state: S) -> Self {
         self
-    }}
-}}
+    }
+}
 
 pub struct HeaderMap;
 pub struct Extensions;
+pub struct RequestContext;
 
-pub struct StatusCode;
+pub fn request_context(_headers: HeaderMap, _extensions: Extensions) -> RequestContext {
+    RequestContext
+}
 
-impl StatusCode {{
-    pub const NOT_IMPLEMENTED: Self = Self;
-}}
+pub fn owned_view<V>(
+    _message: &<V as view::MessageView<'static>>::Owned,
+) -> Result<view::OwnedView<V>, ConnectError>
+where
+    V: view::MessageView<'static>,
+    V::Owned: Clone,
+{
+    Ok(view::OwnedView(_message.clone(), ::std::marker::PhantomData))
+}
 
-pub struct Response<T>(pub T);
-pub struct Builder;
+pub fn error_response(_err: ConnectError) -> Response<body::Body> {
+    Response {
+        status: 400,
+        body: body::Body("error"),
+    }
+}
 
-impl Response<body::Body> {{
-    pub fn builder() -> Builder {{
-        Builder
-    }}
-}}
+pub fn service_response<M, B>(_response: ServiceResult<B>) -> Response<body::Body>
+where
+    B: Encodable<M>,
+{
+    match _response {
+        Ok(_) => Response {
+            status: 200,
+            body: body::Body("ok"),
+        },
+        Err(err) => error_response(err),
+    }
+}
 
-impl Builder {{
-    pub fn status(self, _status: StatusCode) -> Self {{
-        self
-    }}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Response<T> {
+    pub status: u16,
+    pub body: T,
+}
 
-    pub fn body(self, body: body::Body) -> Result<Response<body::Body>, ()> {{
-        Ok(Response(body))
-    }}
-}}
+impl<T> Response<T> {
+    pub fn new(body: T) -> Self {
+        Self { status: 200, body }
+    }
+}
 
-pub mod connect {{
-    pub mod test {{
-        pub mod v1 {{
-            pub trait TestService: Send + Sync + 'static {{}}
-        }}
-    }}
-}}
+#[derive(Clone, Debug)]
+pub struct ConnectError;
 
-pub mod proto {{
-    pub mod test {{
-        pub mod v1 {{
-            #[derive(Clone, Debug, serde::Deserialize)]
-            pub struct TestRequest;
+pub type ServiceResult<B> = Result<Response<B>, ConnectError>;
 
-            #[derive(Clone, Debug, serde::Deserialize)]
-            pub struct Nested;
+pub trait Encodable<M> {}
 
-            #[derive(Clone, Debug, serde::Deserialize)]
-            pub enum Tester {{}}
-        }}
-    }}
-}}
+pub mod view {
+    pub trait MessageView<'a> {
+        type Owned;
+    }
 
-{generated}
+    pub struct OwnedView<V: MessageView<'static>>(
+        pub V::Owned,
+        pub ::std::marker::PhantomData<V>,
+    );
+}
+
+pub mod connect {
+    pub mod test {
+        pub mod v1 {
+            pub trait TestService: Send + Sync + 'static {
+                fn get_one<'a>(
+                    &'a self,
+                    _ctx: crate::RequestContext,
+                    _request: crate::view::OwnedView<
+                        crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
+                    >,
+                ) -> impl ::std::future::Future<
+                    Output = crate::ServiceResult<crate::proto::test::v1::TestResponse>,
+                > + Send + 'a;
+
+                fn do_test<'a>(
+                    &'a self,
+                    _ctx: crate::RequestContext,
+                    _request: crate::view::OwnedView<
+                        crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
+                    >,
+                ) -> impl ::std::future::Future<
+                    Output = crate::ServiceResult<crate::proto::test::v1::TestResponse>,
+                > + Send + 'a;
+
+                fn patch_all<'a>(
+                    &'a self,
+                    _ctx: crate::RequestContext,
+                    _request: crate::view::OwnedView<
+                        crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
+                    >,
+                ) -> impl ::std::future::Future<
+                    Output = crate::ServiceResult<crate::proto::test::v1::TestResponse>,
+                > + Send + 'a;
+
+                fn ping<'a>(
+                    &'a self,
+                    _ctx: crate::RequestContext,
+                    _request: crate::view::OwnedView<
+                        crate::proto::test::v1::__buffa::view::EmptyRequestView<'static>,
+                    >,
+                ) -> impl ::std::future::Future<
+                    Output = crate::ServiceResult<crate::proto::test::v1::TestResponse>,
+                > + Send + 'a;
+            }
+        }
+    }
+}
+
+pub mod proto {
+    pub mod test {
+        pub mod v1 {
+            #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize)]
+            pub struct TestRequest {
+                pub data: ::std::string::String,
+                pub test_type: Tester,
+                pub tester: Nested,
+            }
+
+            #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize)]
+            pub struct Nested {
+                pub data: ::std::string::String,
+            }
+
+            #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize)]
+            pub enum Tester {
+                #[default]
+                Unknown,
+                Known,
+            }
+
+            #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize)]
+            pub struct EmptyRequest;
+
+            #[derive(Clone, Debug, Default, Eq, PartialEq)]
+            pub struct TestResponse;
+
+            impl crate::Encodable<TestResponse> for TestResponse {}
+
+            pub mod __buffa {
+                pub mod view {
+                    pub struct TestRequestView<'a>(::std::marker::PhantomData<&'a ()>);
+                    pub struct EmptyRequestView<'a>(::std::marker::PhantomData<&'a ()>);
+                }
+            }
+
+            impl crate::view::MessageView<'static> for __buffa::view::TestRequestView<'static> {
+                type Owned = TestRequest;
+            }
+
+            impl crate::view::MessageView<'static> for __buffa::view::EmptyRequestView<'static> {
+                type Owned = EmptyRequest;
+            }
+        }
+    }
+}
+
 "#
-        )
+        .to_owned();
+        source.push_str(generated);
+        source.push_str(
+            r#"
+
+#[cfg(test)]
+mod generated_handler_tests {
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::{Arc, Mutex};
+    use std::task::{Context, Poll};
+
+    use crate::extract::{Path, Query, State};
+    use crate::proto::test::v1::{EmptyRequest, Nested, TestRequest, TestResponse, Tester};
+    use crate::{Extensions, HeaderMap, Json, Response, ServiceResult};
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    enum Call {
+        Test(TestRequest),
+        Empty(EmptyRequest),
+    }
+
+    #[derive(Default)]
+    struct RecordingService {
+        calls: Mutex<Vec<Call>>,
+        fail: bool,
+    }
+
+    impl RecordingService {
+        fn failing() -> Self {
+            Self {
+                calls: Mutex::new(Vec::new()),
+                fail: true,
+            }
+        }
+
+        fn calls(&self) -> Vec<Call> {
+            self.calls.lock().expect("calls lock").clone()
+        }
+
+        fn respond(&self, call: Call) -> ServiceResult<TestResponse> {
+            if self.fail {
+                Err(crate::ConnectError)
+            } else {
+                self.calls.lock().expect("calls lock").push(call);
+                Ok(Response::new(TestResponse))
+            }
+        }
+    }
+
+    impl crate::connect::test::v1::TestService for RecordingService {
+        fn get_one<'a>(
+            &'a self,
+            _ctx: crate::RequestContext,
+            request: crate::view::OwnedView<
+                crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
+            >,
+        ) -> impl Future<Output = ServiceResult<TestResponse>> + Send + 'a {
+            async move { self.respond(Call::Test(request.0)) }
+        }
+
+        fn do_test<'a>(
+            &'a self,
+            _ctx: crate::RequestContext,
+            request: crate::view::OwnedView<
+                crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
+            >,
+        ) -> impl Future<Output = ServiceResult<TestResponse>> + Send + 'a {
+            async move { self.respond(Call::Test(request.0)) }
+        }
+
+        fn patch_all<'a>(
+            &'a self,
+            _ctx: crate::RequestContext,
+            request: crate::view::OwnedView<
+                crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
+            >,
+        ) -> impl Future<Output = ServiceResult<TestResponse>> + Send + 'a {
+            async move { self.respond(Call::Test(request.0)) }
+        }
+
+        fn ping<'a>(
+            &'a self,
+            _ctx: crate::RequestContext,
+            request: crate::view::OwnedView<
+                crate::proto::test::v1::__buffa::view::EmptyRequestView<'static>,
+            >,
+        ) -> impl Future<Output = ServiceResult<TestResponse>> + Send + 'a {
+            async move { self.respond(Call::Empty(request.0)) }
+        }
+    }
+
+    #[test]
+    fn successful_unary_request_reconstructs_path_and_query() {
+        let service = Arc::new(RecordingService::default());
+
+        let response = block_on(crate::test_service_rest::get_one(
+            State(service.clone()),
+            Path("alpha".to_owned()),
+            Query(crate::test_service_rest::TestRequestQuery__ {
+                test_type: Tester::Known,
+                tester: Nested {
+                    data: "query".to_owned(),
+                },
+            }),
+            HeaderMap,
+            Extensions,
+        ));
+
+        assert_eq!(response.status, 200);
+        assert_eq!(
+            service.calls(),
+            vec![Call::Test(TestRequest {
+                data: "alpha".to_owned(),
+                test_type: Tester::Known,
+                tester: Nested {
+                    data: "query".to_owned(),
+                },
+            })]
+        );
+    }
+
+    #[test]
+    fn service_error_response_is_mapped() {
+        let service = Arc::new(RecordingService::failing());
+
+        let response = block_on(crate::test_service_rest::get_one(
+            State(service),
+            Path("alpha".to_owned()),
+            Query(crate::test_service_rest::TestRequestQuery__ {
+                test_type: Tester::Known,
+                tester: Nested {
+                    data: "query".to_owned(),
+                },
+            }),
+            HeaderMap,
+            Extensions,
+        ));
+
+        assert_eq!(response.status, 400);
+        assert_eq!(response.body, crate::body::Body("error"));
+    }
+
+    #[test]
+    fn path_and_body_request_is_reconstructed() {
+        let service = Arc::new(RecordingService::default());
+
+        let response = block_on(crate::test_service_rest::do_test(
+            State(service.clone()),
+            Path(("alpha".to_owned(), Tester::Known)),
+            HeaderMap,
+            Extensions,
+            Json(Nested {
+                data: "body".to_owned(),
+            }),
+        ));
+
+        assert_eq!(response.status, 200);
+        assert_eq!(
+            service.calls(),
+            vec![Call::Test(TestRequest {
+                data: "alpha".to_owned(),
+                test_type: Tester::Known,
+                tester: Nested {
+                    data: "body".to_owned(),
+                },
+            })]
+        );
+    }
+
+    #[test]
+    fn body_star_request_is_forwarded_verbatim() {
+        let service = Arc::new(RecordingService::default());
+        let request = TestRequest {
+            data: "whole".to_owned(),
+            test_type: Tester::Known,
+            tester: Nested {
+                data: "body".to_owned(),
+            },
+        };
+
+        let response = block_on(crate::test_service_rest::patch_all(
+            State(service.clone()),
+            HeaderMap,
+            Extensions,
+            Json(request.clone()),
+        ));
+
+        assert_eq!(response.status, 200);
+        assert_eq!(service.calls(), vec![Call::Test(request)]);
+    }
+
+    #[test]
+    fn empty_request_uses_default_owned_message() {
+        let service = Arc::new(RecordingService::default());
+
+        let response = block_on(crate::test_service_rest::ping(
+            State(service.clone()),
+            HeaderMap,
+            Extensions,
+        ));
+
+        assert_eq!(response.status, 200);
+        assert_eq!(service.calls(), vec![Call::Empty(EmptyRequest)]);
+    }
+
+    fn block_on<F: Future>(future: F) -> F::Output {
+        let mut future = Pin::from(Box::new(future));
+        let waker = std::task::Waker::noop();
+        let mut context = Context::from_waker(waker);
+
+        loop {
+            match future.as_mut().poll(&mut context) {
+                Poll::Ready(output) => return output,
+                Poll::Pending => std::thread::yield_now(),
+            }
+        }
+    }
+}
+"#,
+        );
+        source
     }
 }

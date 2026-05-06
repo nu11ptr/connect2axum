@@ -173,18 +173,24 @@ mod tests {
         FileDescriptorProto {
             name: Some(name.into()),
             package: Some(package.into()),
-            message_type: vec![DescriptorProto {
-                name: Some("HelloRequest".into()),
-                field: vec![FieldDescriptorProto {
-                    name: Some("name".into()),
-                    number: Some(1),
-                    label: Some(Label::LABEL_OPTIONAL),
-                    r#type: Some(Type::TYPE_STRING),
-                    json_name: Some("name".into()),
+            message_type: vec![
+                DescriptorProto {
+                    name: Some("HelloRequest".into()),
+                    field: vec![FieldDescriptorProto {
+                        name: Some("name".into()),
+                        number: Some(1),
+                        label: Some(Label::LABEL_OPTIONAL),
+                        r#type: Some(Type::TYPE_STRING),
+                        json_name: Some("name".into()),
+                        ..Default::default()
+                    }],
                     ..Default::default()
-                }],
-                ..Default::default()
-            }],
+                },
+                DescriptorProto {
+                    name: Some("HelloResponse".into()),
+                    ..Default::default()
+                },
+            ],
             service: vec![ServiceDescriptorProto {
                 name: Some("HelloService".into()),
                 method: vec![MethodDescriptorProto {

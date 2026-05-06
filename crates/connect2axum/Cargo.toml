@@ -9,3 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+axum.workspace = true
+buffa.workspace = true
+connectrpc.workspace = true
+http.workspace = true

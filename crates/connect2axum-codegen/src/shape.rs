@@ -263,6 +263,7 @@ impl<'a> RequestPlanner<'a> {
             HttpBody::None => Ok(None),
             HttpBody::Wildcard => {
                 if work.is_intact() {
+                    work.remove_all_fields();
                     Ok(Some(RequestPartShape::VerbatimRequest {
                         rust_type: self
                             .resolver
@@ -641,6 +642,29 @@ mod tests {
             Some(RequestPartShape::VerbatimRequest { rust_type })
                 if rust_type.as_str() == "crate::proto::test::v1::NameRequest"
         ));
+        assert_eq!(
+            shapes.request_shapes[0].reconstruction,
+            RequestReconstruction::VerbatimBody
+        );
+    }
+
+    #[test]
+    fn body_wildcard_uses_original_request_without_query_fields() {
+        let ir = build_ir(&request(vec![test_file(vec![method(
+            "PatchAll",
+            ".test.v1.TestRequest",
+            http_rule(6, "/test", Some("*")),
+        )])]))
+        .unwrap();
+
+        let shapes = plan_file_shapes(&ir, &ir.files[0], &CodegenOptions::default()).unwrap();
+
+        assert!(matches!(
+            &shapes.request_shapes[0].body_shape,
+            Some(RequestPartShape::VerbatimRequest { rust_type })
+                if rust_type.as_str() == "crate::proto::test::v1::TestRequest"
+        ));
+        assert!(shapes.request_shapes[0].query_shape.is_none());
         assert_eq!(
             shapes.request_shapes[0].reconstruction,
             RequestReconstruction::VerbatimBody

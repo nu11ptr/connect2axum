@@ -14,9 +14,12 @@ repository = "https://github.com/nu11ptr/connect2axum"
 [workspace.dependencies]
 buffa = "0.5"
 buffa-codegen = "0.5"
+axum = { version = "0.8", default-features = false }
+connectrpc = { version = "0.4", default-features = false }
 connectrpc-codegen = "0.4"
 flexstr = { version = "0.11", features = ["std", "str"] }
 heck = "0.5"
+http = "1"
 prettyplease = "0.2"
 proc-macro2 = "1"
 quote = "1"
