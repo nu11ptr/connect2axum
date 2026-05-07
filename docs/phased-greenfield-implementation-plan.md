@@ -50,6 +50,48 @@ Project-wide Rust conventions:
   `thiserror` dependencies unless there is a specific external integration that
   requires them.
 
+## REST Adapter Shape Finding
+
+Buffa views are protobuf-wire views, not JSON-document views. `OwnedView::decode`
+and generated `MessageView::decode_view` borrow from protobuf bytes. ConnectRPC's
+own JSON request path confirms this: `decode_request_view` deserializes JSON into
+the Buffa owned message, re-encodes that message as protobuf bytes, then decodes
+an `OwnedView` from those bytes.
+
+The response side has the same important boundary. Connect-generated service
+traits can return owned messages, generated output views, `OwnedView<...>`, or
+`MaybeBorrowed`. However, ConnectRPC intentionally supports view response bodies
+only for protobuf output; `encode_view_body(..., CodecFormat::Json)` returns
+`Unimplemented` because views do not implement `serde::Serialize`.
+
+So the better REST adapter style is not a raw JSON-backed view. The better style
+is "Connect JSON compatibility first, then remove the owned detour where we can":
+
+- keep Connect service inputs as `OwnedView<...View<'static>>`;
+- use Buffa-owned protobuf-JSON deserialization followed by
+  `OwnedView::from_owned` as the compatibility baseline;
+- add generated JSON-to-protobuf transcoders for supported request shapes so the
+  hot path can become protobuf-JSON bytes to protobuf wire bytes to
+  `OwnedView::decode`;
+- for split REST requests, make generated body/query/path extraction use the
+  same Buffa protobuf-JSON field rules as Buffa-generated owned messages, then
+  progressively replace DTO construction with direct wire writing;
+- allow service responses to be owned or view-shaped;
+- provide a response wrapper for view bodies that can encode as protobuf for
+  protobuf clients and encode JSON either directly from generated view JSON
+  serializers or by falling back to protobuf-to-owned-to-JSON.
+
+A composite request made of several `OwnedView`s is not the right abstraction:
+Connect-generated service methods expect one concrete
+`OwnedView<InputView<'static>>`, and Buffa's `OwnedView` owns one contiguous
+`Bytes` buffer whose view borrows must all point into that buffer. A proxy would
+require changing the Connect service trait shape or introducing unsafe lifetime
+invariants across multiple backing buffers.
+
+This should become its own review phase before OpenAPI, because it changes the
+core adapter paradigm from "serde DTOs that happen to look like protobuf" to
+"thin wrappers around Buffa's protobuf-JSON behavior."
+
 ## Phase 1: Workspace And Quality Harness
 
 Goal: create a minimal green Rust workspace in `connect2axum` with the final
@@ -319,7 +361,8 @@ Implementation:
   - request context construction from HTTP headers/extensions,
   - HTTP response construction from successful Connect responses,
   - Connect error to HTTP status/body mapping,
-  - JSON serialization helpers for Buffa-owned and Buffa-view responses.
+  - initial JSON serialization through ConnectRPC's `Encodable` contract for
+    owned responses.
 - Generate handler bodies that:
   - reconstruct the original Buffa owned request from path/query/body pieces,
   - convert that request into the generated Connect method's expected
@@ -401,7 +444,123 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 ```
 
-## Phase 8: OpenAPI Generation
+## Phase 8: Efficient Buffa-Compatible REST Adapter Shape
+
+Goal: make REST request/response handling match ConnectRPC's JSON behavior as
+closely as possible, while reducing avoidable owned-message allocation on both
+the request and response sides.
+
+Implementation:
+
+- Add a user-facing response utility in `crates/connect2axum` for services that
+  want to return views without dropping JSON support:
+  - expose a wrapper constructor such as `json_compatible_view(view)`,
+  - implement `connectrpc::Encodable<M>` for the wrapper,
+  - for `CodecFormat::Proto`, delegate to the view's protobuf encoding,
+  - for `CodecFormat::Json`, first use a generated view JSON encoder when one
+    exists,
+  - otherwise encode the view as protobuf, decode `M`, then serialize `M`
+    through Buffa's protobuf-JSON serde implementation.
+- Generate an internal `JsonViewEncode<M>`-style trait implementation for
+  output views where descriptor support is complete enough:
+  - serialize scalar fields with protobuf JSON rules,
+  - skip default fields the same way Buffa-owned JSON does,
+  - handle enum names/numbers, bytes/base64, 64-bit integer strings, repeated
+    fields, maps, nested messages, oneofs, and supported well-known types,
+  - keep the implementation on a connect2axum-owned trait rather than
+    implementing `serde::Serialize` for Buffa views directly, so it will not
+    conflict if Buffa later adds view `Serialize`.
+- Add runtime response helpers that keep the current fast path for owned
+  responses:
+  - try `body.encode(CodecFormat::Json)` first,
+  - if that returns `ErrorCode::Unimplemented`, encode the body as protobuf
+    with `CodecFormat::Proto`,
+  - decode the protobuf bytes into the Buffa owned output message,
+  - serialize that owned message with Buffa's serde/proto-JSON mapping,
+  - preserve response headers, trailers, and error mapping.
+- Tighten runtime bounds for REST JSON response helpers as needed:
+  - `B: connectrpc::Encodable<M>`,
+  - `M: buffa::Message + serde::Serialize`.
+- Add generated-code tests proving a REST endpoint succeeds when the service
+  returns:
+  - an owned Buffa response,
+  - an `OwnedView<OutputView<'static>>`,
+  - a generated output view or `MaybeBorrowed` where the lifetime shape permits
+    it.
+- Keep runtime request helpers that mirror ConnectRPC's JSON request behavior
+  without relying on hidden ConnectRPC codegen APIs:
+  - deserialize JSON with `serde_json::from_slice::<InputOwned>`,
+  - rely on Buffa-generated `serde` attributes/helpers for protobuf-compliant
+    JSON behavior,
+  - convert the owned message to `OwnedView<InputView<'static>>` with
+    `OwnedView::from_owned`,
+  - use this as the fallback for request shapes the direct transcoder does not
+    support yet.
+- Add generated JSON-to-protobuf request transcoders for supported request
+  shapes:
+  - parse protobuf-compliant JSON with `serde_json::Deserializer` visitors or
+    seeds,
+  - write protobuf tags and field values directly into a `BytesMut`/`Vec<u8>`
+    using Buffa's public `encoding` and `types` helpers,
+  - decode the final `Bytes` with `OwnedView::<InputView>::decode`,
+  - avoid constructing Buffa owned messages, REST body DTOs, `String`, `Vec`, or
+    `HashMap` values except where JSON parsing itself requires a temporary
+    value, such as escaped strings, base64 bytes, nested length-delimited
+    buffers, or maps.
+- For generated REST request extraction, align all generated DTOs with Buffa's
+  generated protobuf-JSON behavior:
+  - use Buffa owned message types directly for `body: "*"` when no path/query
+    fields are removed,
+  - use Buffa owned sub-message types directly for `body: "message_field"`,
+  - generate scalar body/query DTOs with Buffa-compatible serde attributes,
+    including JSON names, proto-name aliases, enum handling, bytes handling,
+    64-bit integer string handling, and wrapper/well-known-type behavior where
+    Buffa supports it,
+  - parse path parameters with the same scalar rules where HTTP path strings can
+    sensibly map to protobuf JSON scalars.
+- Prefer the direct transcoder for:
+  - `body: "*"` whole-message JSON,
+  - `body: "message_field"` sub-message JSON embedded into the parent request,
+  - scalar path/query fields that can be parsed and encoded without intermediate
+    DTO storage.
+- Keep the Phase 6 owned reconstruction model as a compatibility fallback for:
+  - unsupported well-known types,
+  - complex maps/oneofs/extensions until implemented,
+  - request shapes where direct transcoding would duplicate too much Buffa logic
+    before tests cover it.
+- Document the important limitation:
+  - raw JSON bytes cannot safely back a Buffa view today,
+  - efficient REST requests should become protobuf-JSON to protobuf wire to
+    `OwnedView::decode`, not a proxy over multiple `OwnedView`s.
+- Add benchmarks or at least allocation-counting tests around:
+  - Buffa-owned compatibility path plus `OwnedView::from_owned`,
+  - generated JSON-to-protobuf request transcoder plus `OwnedView::decode`,
+  - owned response JSON direct path,
+  - generated view-to-JSON response path,
+  - view response protobuf-decode JSON fallback.
+
+Review focus:
+
+- The request adapter should now behave like Buffa/Connect JSON, not like
+  default serde DTOs with renamed fields.
+- The response adapter should allow Connect service authors to return views
+  without breaking REST JSON endpoints.
+- Direct wire construction is now an explicit efficiency goal, but it must be
+  guarded by Buffa/Connect compatibility tests and fall back cleanly when a
+  feature is not supported yet.
+
+Phase gate:
+
+```sh
+buf lint
+buf generate
+git diff --exit-code
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+```
+
+## Phase 9: OpenAPI Generation
 
 Goal: restore the old OpenAPI value, but generate it from descriptors instead
 of `utoipa` derives on Prost structs.
@@ -452,7 +611,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 ```
 
-## Phase 9: Streaming Policy
+## Phase 10: Streaming Policy
 
 Goal: make streaming behavior explicit and green without recreating the old
 WebSocket subsystem by accident.
@@ -497,7 +656,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 ```
 
-## Phase 10: Compatibility Hardening
+## Phase 11: Compatibility Hardening
 
 Goal: cover the non-happy-path proto/codegen cases that usually make generator
 crates painful to adopt.
@@ -541,7 +700,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 ```
 
-## Phase 11: Documentation And Release Readiness
+## Phase 12: Documentation And Release Readiness
 
 Goal: turn the green implementation into a usable crate set.
 
