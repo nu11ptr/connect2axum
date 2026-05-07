@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/connect2axum",
     "crates/connect2axum-codegen",
+    "examples/simple",
 ]
 
 [workspace.package]
