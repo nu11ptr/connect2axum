@@ -554,90 +554,115 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 ```
 
-## Phase 9: OpenAPI Generation
+## Phase 9: OpenAPI Generation Deferred
 
-Goal: restore the old OpenAPI value, but generate it from descriptors instead
-of `utoipa` derives on Prost structs.
-
-Implementation:
-
-- Add `openapi=true` plugin support.
-- Generate a package/service OpenAPI function:
-  - default name: `openapi`
-  - return type: `utoipa::openapi::OpenApi`
-  - no global side effects.
-- Generate schemas from descriptor fields:
-  - scalar fields,
-  - enums,
-  - nested messages,
-  - repeated fields,
-  - maps if Buffa/descriptor support is straightforward,
-  - well-known types with documented first-pass mappings.
-- Generate operation metadata:
-  - method,
-  - path,
-  - tag,
-  - path params,
-  - query params,
-  - request body,
-  - response body,
-  - comments as descriptions.
-- Add plugin options for security:
-  - `security=Bearer` for all generated operations,
-  - defer per-service/per-method security until there is a concrete user need.
-- Add Swagger UI to `examples/simple`.
-- Add snapshot tests for generated OpenAPI JSON.
-
-Review focus:
-
-- Descriptor-derived OpenAPI should be independent of generated Rust DTOs.
-- Keep first-pass schema support honest; unsupported proto features should
-  produce clear plugin errors or documented generic schemas.
-
-Phase gate:
-
-```sh
-buf lint
-buf generate
-git diff --exit-code
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
-```
-
-## Phase 10: Streaming Policy
-
-Goal: make streaming behavior explicit and green without recreating the old
-WebSocket subsystem by accident.
+OpenAPI generation is intentionally skipped for now. The likely direction is a
+separate OpenAPI effort, and possibly a separate project, rather than putting
+OpenAPI generation into `connect2axum`.
 
 Implementation:
 
-- Add streaming detection to the descriptor IR:
-  - unary,
-  - server streaming,
-  - client streaming,
-  - bidirectional streaming.
-- Default policy:
-  - generate REST handlers only for unary methods,
-  - skip streaming methods with a clear codegen warning/comment,
-  - rely on native Connect/gRPC-Web for streaming.
-- Add an opt-in experimental server-streaming REST mode only if it stays small:
-  - `streaming=server-ndjson`,
-  - server-streaming response as NDJSON,
-  - no client-streaming or bidirectional REST in v1.
-- Do not port the old WebSocket helpers.
-- Add `examples/streaming` that proves the Connect-generated service handles
-  streaming without `connect2axum` REST involvement.
-- Add tests for:
-  - streaming methods are skipped by default,
-  - unary methods in the same service still generate,
-  - optional server-streaming NDJSON works if implemented,
-  - WebSocket routes are not generated.
+- Do not add new OpenAPI generator behavior in this phase.
+- Keep existing parsed plugin options stable for now so earlier phases do not
+  churn, but treat `openapi=true` as inactive until the OpenAPI direction is
+  revisited.
+- Do not add Swagger UI to the examples.
 
 Review focus:
 
-- This phase intentionally narrows scope. The old `ws-streaming` example should
-  become a Connect-native streaming example, not a WebSocket replacement.
+- The project should remain focused on REST wrappers over ConnectRPC services.
+- Avoid adding OpenAPI-specific dependencies or public APIs while the strategy
+  is TBD.
+
+## Phase 10: First-Class NDJSON Streaming REST
+
+Goal: generate REST wrappers for every `google.api.http` method in the proto
+file, regardless of whether the RPC is unary, server-streaming,
+client-streaming, or bidirectional-streaming. Streaming REST is first-class and
+uses NDJSON, not WebSockets.
+
+Implementation:
+
+- Extend the IR and request-shape planning to treat streaming as a route shape,
+  not a reason to skip generation:
+  - unary: one request, one response;
+  - server streaming: one request, NDJSON response stream;
+  - client streaming: NDJSON request stream, one response;
+  - bidirectional streaming: NDJSON request stream, NDJSON response stream.
+- Preserve the existing `streaming_content_type` plugin option:
+  - default: `application/x-ndjson`;
+  - use it as the response content type for server/bidi streaming;
+  - use it as the expected/request body content type for client/bidi streaming;
+  - keep it overridable through the existing comma-separated plugin options.
+- Add runtime helpers for NDJSON request streams:
+  - read newline-delimited JSON objects from the Axum request body;
+  - deserialize each line with Buffa-owned serde/ProtoJSON rules;
+  - convert each owned request item to `OwnedView<InputView<'static>>` with the
+    same `OwnedView::from_owned` strategy as unary REST;
+  - return a `connectrpc::ServiceStream<OwnedView<InputView<'static>>>`;
+  - map malformed JSON lines to `ConnectError::invalid_argument`;
+  - document and test blank-line behavior explicitly.
+- Add runtime helpers for NDJSON response streams:
+  - consume `connectrpc::ServiceResult<connectrpc::ServiceStream<B>>`;
+  - serialize each successful stream item as one JSON line;
+  - use the Phase 8 JSON-compatible response path per item so owned responses
+    and view responses both work;
+  - preserve response headers where HTTP permits it;
+  - map stream item errors to a documented terminal NDJSON error line or a
+    documented stream failure, then test that behavior.
+- Generate handler bodies by RPC shape:
+  - unary keeps the Phase 8 behavior;
+  - server streaming reconstructs one request exactly like unary, calls the
+    Connect service, then emits an NDJSON response;
+  - client streaming builds a request stream from the NDJSON body, calls the
+    Connect service, then emits a unary JSON response;
+  - bidirectional streaming builds a request stream from the NDJSON body, calls
+    the Connect service, then emits an NDJSON response.
+- Keep request and response conversion aligned with ConnectRPC/Buffa:
+  - request stream items use Buffa generated owned structs or generated
+    Buffa-compatible DTOs, then `OwnedView::from_owned`;
+  - response stream items use ConnectRPC `Encodable<M>` JSON first, then the
+    view-to-owned fallback from Phase 8 when JSON is unimplemented;
+  - do not write custom ProtoJSON encoders/decoders for streaming.
+- Handle path/query parameters for streaming deliberately:
+  - server-streaming methods can use path/query exactly like unary methods;
+  - client/bidi streaming methods with path or query parameters fail codegen
+    with a precise error, matching the old `tonic2axum` boundary;
+  - client/bidi streaming methods require a streamable body, usually
+    `body: "*"`;
+  - if a client/bidi streaming binding has no streamable body or requires
+    path/query reconstruction, fail codegen instead of generating surprising
+    behavior.
+- Do not port or generate WebSocket routes in this phase:
+  - no `ws` runtime module;
+  - no websocket feature flag;
+  - no websocket routes beside the NDJSON REST routes;
+  - if WebSockets return later, they should likely be a separate generator
+    binary.
+- Add `examples/streaming` adapted from `../tonic2axum/examples/streaming`:
+  - use Buf generation instead of `build.rs`;
+  - check in generated Buffa, Connect, and connect2axum REST files;
+  - include README instructions for REST NDJSON with `curl`;
+  - include README instructions for native Connect/gRPC streaming where the
+    current Rust Connect tooling supports it.
+- Add generated-code and runtime tests for:
+  - all four RPC shapes generate handlers and routes;
+  - NDJSON request streams decode multiple ProtoJSON lines;
+  - NDJSON response streams emit one JSON object per line;
+  - server-streaming methods support unary-style path/query/body extraction;
+  - client/bidi streaming methods with path/query fail codegen with a precise
+    error;
+  - malformed NDJSON produces a deterministic error;
+  - generated code contains no WebSocket routes or helpers.
+
+Review focus:
+
+- Streaming REST should feel like a natural extension of unary REST, not a
+  bolted-on WebSocket replacement.
+- The implementation should reuse Buffa/ConnectRPC request and response
+  semantics per item.
+- NDJSON behavior and error handling must be explicit enough for users to
+  depend on.
 
 Phase gate:
 
@@ -706,7 +731,7 @@ Implementation:
   - quick start,
   - Buf install/generate workflow,
   - Axum composition example,
-  - OpenAPI example.
+  - unary and streaming REST examples.
 - Add API docs to public runtime helpers.
 - Add `docs/migrating-from-tonic2axum.md`:
   - `build.rs` to Buf,
@@ -768,6 +793,9 @@ cargo test --workspace --all-features
 - Buffa view ownership and JSON helpers:
   `buffa::view::OwnedView::{decode, from_owned}` and `buffa::json_helpers` in
   `buffa` 0.5.
+- Tonic2Axum HTTP streaming reference:
+  `../tonic2axum/tonic2axum/src/streaming/http.rs` and
+  `../tonic2axum/examples/streaming`.
 - Buf generate docs:
   <https://buf.build/docs/generate/>
 - Buf `buf.gen.yaml` v2 docs:
