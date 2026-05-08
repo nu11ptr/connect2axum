@@ -15,7 +15,7 @@ Required local plugins:
 
 ```sh
 cargo install --locked protoc-gen-buffa protoc-gen-buffa-packaging connectrpc-codegen
-cargo install --path crates/connect2axum-codegen
+cargo install --path crates/connect2axum-codegen # installs protoc-gen-connect2rest
 ```
 
 From the workspace root:

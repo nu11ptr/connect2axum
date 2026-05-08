@@ -12,8 +12,8 @@ name = "connect2axum_codegen"
 path = "src/lib.rs"
 
 [[bin]]
-name = "protoc-gen-connect2axum"
-path = "src/bin/protoc-gen-connect2axum.rs"
+name = "protoc-gen-connect2rest"
+path = "src/bin/protoc-gen-connect2rest.rs"
 
 [dependencies]
 buffa.workspace = true

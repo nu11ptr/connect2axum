@@ -13,7 +13,7 @@ pub mod connect;
 pub mod proto;
 
 #[rustfmt::skip]
-#[path = "generated/rest/hello/v1/hello.connect2axum.rs"]
+#[path = "generated/connect2axum/hello/v1/hello.connect2rest.rs"]
 pub mod rest;
 
 use connect::hello::v1::GreeterServiceExt as _;

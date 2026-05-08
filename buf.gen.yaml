@@ -17,8 +17,8 @@ plugins:
     strategy: all
     opt:
       - filter=services
-  - local: protoc-gen-connect2axum
-    out: examples/simple/src/generated/rest
+  - local: protoc-gen-connect2rest
+    out: examples/simple/src/generated/connect2axum
     opt:
       - buffa_module=crate::proto
       - connect_module=crate::connect

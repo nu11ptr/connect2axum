@@ -1,4 +1,4 @@
-//! `protoc-gen-connect2axum` compiler plugin entrypoint.
+//! `protoc-gen-connect2rest` compiler plugin entrypoint.
 
 use buffa::Message as _;
 use connect2axum_codegen::CodeGeneratorRequest;
@@ -14,7 +14,7 @@ fn main() -> SimpleResult<()> {
     let request = CodeGeneratorRequest::decode_from_slice(&input)
         .kind_default_context("failed to decode CodeGeneratorRequest")?;
 
-    let response = connect2axum_codegen::generate(&request);
+    let response = connect2axum_codegen::generate_rest(&request);
     let output = response.encode_to_vec();
 
     io::stdout()

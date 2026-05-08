@@ -14,7 +14,7 @@ pub mod connect;
 pub mod proto;
 
 #[rustfmt::skip]
-#[path = "generated/rest/streaming/v1/streaming.connect2axum.rs"]
+#[path = "generated/connect2axum/streaming/v1/streaming.connect2rest.rs"]
 pub mod rest;
 
 use connect::streaming::v1::{GreeterServiceExt as _, OwnedHelloRequestView};

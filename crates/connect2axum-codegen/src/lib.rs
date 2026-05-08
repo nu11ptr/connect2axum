@@ -1,12 +1,12 @@
 //! Protoc/Buf code generation for `connect2axum`.
 //!
 
-mod codegen;
 mod error;
 mod http;
 mod ir;
 mod options;
 mod resolver;
+mod rest;
 mod shape;
 
 pub use connectrpc_codegen::plugin::{CodeGeneratorRequest, CodeGeneratorResponse};
@@ -22,13 +22,13 @@ pub use shape::{
     RequestReconstruction, RequestShape, ShapeField, plan_file_shapes,
 };
 
-/// Generate a protoc plugin response for a request.
+/// Generate a REST protoc plugin response for a request.
 ///
 /// Errors are returned through the protoc plugin error field so `buf generate`
 /// and `protoc` can display them as compiler-plugin failures.
 #[must_use]
-pub fn generate(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
-    match try_generate(request) {
+pub fn generate_rest(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
+    match try_generate_rest(request) {
         Ok(response) => response,
         Err(err) => CodeGeneratorResponse {
             error: Some(err.to_string()),
@@ -37,14 +37,14 @@ pub fn generate(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
     }
 }
 
-/// Generate a protoc plugin response, returning typed project errors.
-pub fn try_generate(request: &CodeGeneratorRequest) -> CodegenResult<CodeGeneratorResponse> {
+/// Generate a REST protoc plugin response, returning typed project errors.
+pub fn try_generate_rest(request: &CodeGeneratorRequest) -> CodegenResult<CodeGeneratorResponse> {
     let options = CodegenOptions::parse(request.parameter.as_deref())?;
     let ir = build_ir(request)?;
     let files = request
         .file_to_generate
         .iter()
-        .map(|file_name| codegen::generate_file(&ir, file_name, &options))
+        .map(|file_name| rest::generate_file(&ir, file_name, &options))
         .collect::<CodegenResult<Vec<_>>>()?
         .into_iter()
         .flatten()
@@ -67,13 +67,13 @@ mod tests {
         field_descriptor_proto::{Label, Type},
     };
 
-    use super::{CodeGeneratorRequest, CodeGeneratorResponse, generate, try_generate};
+    use super::{CodeGeneratorRequest, CodeGeneratorResponse, generate_rest, try_generate_rest};
 
     #[test]
     fn empty_request_generates_empty_response() {
         let request = CodeGeneratorRequest::default();
 
-        let response = generate(&request);
+        let response = generate_rest(&request);
 
         assert!(response.file.is_empty());
         assert!(response.error.is_none());
@@ -86,7 +86,7 @@ mod tests {
             ..Default::default()
         };
 
-        let response = generate(&request);
+        let response = generate_rest(&request);
 
         assert!(response.file.is_empty());
         assert!(
@@ -108,7 +108,7 @@ mod tests {
             ..Default::default()
         };
 
-        let response = try_generate(&request).unwrap();
+        let response = try_generate_rest(&request).unwrap();
 
         let names = response
             .file
@@ -118,8 +118,8 @@ mod tests {
         assert_eq!(
             names,
             vec![
-                Some("hello/v1/hello.connect2axum.rs"),
-                Some("echo.connect2axum.rs")
+                Some("hello/v1/hello.connect2rest.rs"),
+                Some("echo.connect2rest.rs")
             ]
         );
     }
@@ -132,7 +132,7 @@ mod tests {
             ..Default::default()
         };
 
-        let response = try_generate(&request).unwrap();
+        let response = try_generate_rest(&request).unwrap();
 
         assert!(response.file.is_empty());
     }
@@ -145,7 +145,7 @@ mod tests {
             ..Default::default()
         };
 
-        let err = try_generate(&request).unwrap_err();
+        let err = try_generate_rest(&request).unwrap_err();
 
         assert!(
             err.to_string()
@@ -160,7 +160,7 @@ mod tests {
         let decoded_request =
             CodeGeneratorRequest::decode_from_slice(&request_bytes).expect("request decodes");
 
-        let response = generate(&decoded_request);
+        let response = generate_rest(&decoded_request);
         let response_bytes = response.encode_to_vec();
         let decoded_response =
             CodeGeneratorResponse::decode_from_slice(&response_bytes).expect("response decodes");
