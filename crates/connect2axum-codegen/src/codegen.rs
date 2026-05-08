@@ -182,10 +182,12 @@ impl<'a> RustGenerator<'a> {
                 .as_str(),
             "method output type",
         )?;
+        let request_type = parse_type(shape.request_type.as_str(), "method request type")?;
         let request_view_type = parse_type(
             &format!("{}<'static>", shape.request_view_type.as_str()),
             "method request view type",
         )?;
+        let streaming_content_type = self.options.streaming_content_type.as_ref();
 
         let mut params = vec![quote! {
             State(#service_value): State<Arc<S>>
@@ -208,20 +210,51 @@ impl<'a> RustGenerator<'a> {
             #extensions_value: Extensions
         });
 
-        if let Some(body_type) = shape.body_shape.as_ref().map(part_type).transpose()? {
+        if method.client_streaming {
+            params.push(quote! {
+                #body_value: #runtime::JsonLines<#request_type>
+            });
+        } else if let Some(body_type) = shape.body_shape.as_ref().map(part_type).transpose()? {
             params.push(quote! {
                 Json(#body_value): Json<#body_type>
             });
         }
 
-        let request_reconstruction = request_reconstruction_tokens(
-            shape,
-            &request_value,
-            &query_value,
-            &body_value,
-            &self.resolver,
-            self.options,
-        )?;
+        let request_preparation = if method.client_streaming {
+            quote! {
+                let #request_value = #runtime::ndjson_request_stream::<#request_view_type>(#body_value);
+            }
+        } else {
+            let request_reconstruction = request_reconstruction_tokens(
+                shape,
+                &request_value,
+                &query_value,
+                &body_value,
+                &self.resolver,
+                self.options,
+            )?;
+            quote! {
+                #request_reconstruction
+                let #request_value = match #runtime::owned_view::<#request_view_type>(&#request_value) {
+                    Ok(#request_value) => #request_value,
+                    Err(err) => return #runtime::error_response(err),
+                };
+            }
+        };
+        let response_conversion = if method.server_streaming {
+            quote! {
+                #runtime::stream_response::<#output_type, _>(
+                    #service_value.#method_ident(#ctx_value, #request_value).await,
+                    #streaming_content_type
+                )
+            }
+        } else {
+            quote! {
+                #runtime::service_response::<#output_type, _>(
+                    #service_value.#method_ident(#ctx_value, #request_value).await
+                )
+            }
+        };
 
         Ok(quote! {
             pub async fn #method_ident<S>(
@@ -231,15 +264,8 @@ impl<'a> RustGenerator<'a> {
                 S: #service_trait + Send + Sync + 'static,
             {
                 let #ctx_value = #runtime::request_context(#headers_value, #extensions_value);
-                #request_reconstruction
-                let #request_value = match #runtime::owned_view::<#request_view_type>(&#request_value) {
-                    Ok(#request_value) => #request_value,
-                    Err(err) => return #runtime::error_response(err),
-                };
-
-                #runtime::service_response::<#output_type, _>(
-                    #service_value.#method_ident(#ctx_value, #request_value).await
-                )
+                #request_preparation
+                #response_conversion
             }
         })
     }
@@ -832,8 +858,35 @@ pub mod test_service_rest {
         fs::remove_dir_all(temp_dir).expect("remove temp crate");
     }
 
+    #[test]
+    fn generates_streaming_handlers_for_all_stream_shapes() {
+        let content = streaming_content();
+
+        assert!(content.contains("pub async fn server_stream"));
+        assert!(content.contains("pub async fn client_stream"));
+        assert!(content.contains("pub async fn bidi_stream"));
+        assert!(content.contains("::connect2axum::JsonLines<crate::proto::test::v1::TestRequest>"));
+        assert!(content.contains("::connect2axum::ndjson_request_stream::<"));
+        assert!(content.contains("::connect2axum::stream_response::<"));
+        assert!(content.contains("\"application/x-ndjson\""));
+        assert!(content.contains(".route(\"/test:server-stream\""));
+        assert!(content.contains(".route(\"/test:client-stream\""));
+        assert!(content.contains(".route(\"/test:bidi-stream\""));
+    }
+
     fn generated_content() -> String {
         let request = request();
+        let response = try_generate(&request).unwrap();
+        assert_eq!(response.file.len(), 1);
+        response.file[0]
+            .content
+            .as_ref()
+            .expect("generated file has content")
+            .clone()
+    }
+
+    fn streaming_content() -> String {
+        let request = streaming_request();
         let response = try_generate(&request).unwrap();
         assert_eq!(response.file.len(), 1);
         response.file[0]
@@ -847,6 +900,14 @@ pub mod test_service_rest {
         CodeGeneratorRequest {
             file_to_generate: vec!["test/v1/test.proto".into()],
             proto_file: vec![test_file()],
+            ..Default::default()
+        }
+    }
+
+    fn streaming_request() -> CodeGeneratorRequest {
+        CodeGeneratorRequest {
+            file_to_generate: vec!["test/v1/streaming.proto".into()],
+            proto_file: vec![streaming_test_file()],
             ..Default::default()
         }
     }
@@ -908,15 +969,74 @@ pub mod test_service_rest {
         }
     }
 
+    fn streaming_test_file() -> FileDescriptorProto {
+        FileDescriptorProto {
+            name: Some("test/v1/streaming.proto".into()),
+            package: Some("test.v1".into()),
+            message_type: vec![
+                DescriptorProto {
+                    name: Some("TestRequest".into()),
+                    field: vec![field("data", 1, Type::TYPE_STRING, None)],
+                    ..Default::default()
+                },
+                DescriptorProto {
+                    name: Some("TestResponse".into()),
+                    field: vec![field("message", 1, Type::TYPE_STRING, None)],
+                    ..Default::default()
+                },
+            ],
+            service: vec![ServiceDescriptorProto {
+                name: Some("TestService".into()),
+                method: vec![
+                    streaming_method(
+                        "ServerStream",
+                        ".test.v1.TestRequest",
+                        http_rule(4, "/test:server-stream", Some("*")),
+                        false,
+                        true,
+                    ),
+                    streaming_method(
+                        "ClientStream",
+                        ".test.v1.TestRequest",
+                        http_rule(4, "/test:client-stream", Some("*")),
+                        true,
+                        false,
+                    ),
+                    streaming_method(
+                        "BidiStream",
+                        ".test.v1.TestRequest",
+                        http_rule(4, "/test:bidi-stream", Some("*")),
+                        true,
+                        true,
+                    ),
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
     fn method(
         name: &str,
         input_type: &str,
         options: MessageField<MethodOptions>,
     ) -> MethodDescriptorProto {
+        streaming_method(name, input_type, options, false, false)
+    }
+
+    fn streaming_method(
+        name: &str,
+        input_type: &str,
+        options: MessageField<MethodOptions>,
+        client_streaming: bool,
+        server_streaming: bool,
+    ) -> MethodDescriptorProto {
         MethodDescriptorProto {
             name: Some(name.into()),
             input_type: Some(input_type.into()),
             output_type: Some(".test.v1.TestResponse".into()),
+            client_streaming: Some(client_streaming),
+            server_streaming: Some(server_streaming),
             options,
             ..Default::default()
         }

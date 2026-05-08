@@ -192,6 +192,7 @@ impl<'a> RequestPlanner<'a> {
             &body_shape,
             &query_shape,
         );
+        validate_streaming_shape(method, binding, &path_fields, &query_shape, &body_shape)?;
 
         Ok(RequestShape {
             method: method.full_name.clone(),
@@ -391,6 +392,60 @@ impl<'a> RequestPlanner<'a> {
             .map(|field| self.shape_field(field))
             .collect()
     }
+}
+
+fn validate_streaming_shape(
+    method: &Method,
+    binding: &HttpBinding,
+    path_fields: &[ShapeField],
+    query_shape: &Option<RequestPartShape>,
+    body_shape: &Option<RequestPartShape>,
+) -> CodegenResult<()> {
+    if !method.client_streaming {
+        return Ok(());
+    }
+
+    if !path_fields.is_empty() {
+        return Err(UniError::from_kind_context(
+            CodegenErrKind::UnsupportedHttpRule,
+            format!(
+                "client or bidi streaming REST method {} cannot bind path parameters",
+                method.full_name.as_ref()
+            ),
+        ));
+    }
+
+    if query_shape.is_some() {
+        return Err(UniError::from_kind_context(
+            CodegenErrKind::UnsupportedHttpRule,
+            format!(
+                "client or bidi streaming REST method {} cannot bind query parameters",
+                method.full_name.as_ref()
+            ),
+        ));
+    }
+
+    if !matches!(binding.body, HttpBody::Wildcard) {
+        return Err(UniError::from_kind_context(
+            CodegenErrKind::UnsupportedHttpRule,
+            format!(
+                "client or bidi streaming REST method {} must use body: \"*\"",
+                method.full_name.as_ref()
+            ),
+        ));
+    }
+
+    if !matches!(body_shape, Some(RequestPartShape::VerbatimRequest { .. })) {
+        return Err(UniError::from_kind_context(
+            CodegenErrKind::UnsupportedHttpRule,
+            format!(
+                "client or bidi streaming REST method {} must stream complete request messages",
+                method.full_name.as_ref()
+            ),
+        ));
+    }
+
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -727,6 +782,80 @@ mod tests {
         );
     }
 
+    #[test]
+    fn client_streaming_body_wildcard_uses_streamed_request_messages() {
+        let ir = build_ir(&request(vec![test_file(vec![streaming_method(
+            "ClientStream",
+            ".test.v1.TestRequest",
+            http_rule(4, "/test:stream", Some("*")),
+            true,
+            false,
+        )])]))
+        .unwrap();
+
+        let shapes = plan_file_shapes(&ir, &ir.files[0], &CodegenOptions::default()).unwrap();
+
+        assert!(matches!(
+            &shapes.request_shapes[0].body_shape,
+            Some(RequestPartShape::VerbatimRequest { rust_type })
+                if rust_type.as_str() == "crate::proto::test::v1::TestRequest"
+        ));
+        assert!(shapes.request_shapes[0].path_fields.is_empty());
+        assert!(shapes.request_shapes[0].query_shape.is_none());
+        assert_eq!(
+            shapes.request_shapes[0].reconstruction,
+            RequestReconstruction::VerbatimBody
+        );
+    }
+
+    #[test]
+    fn client_streaming_rejects_path_parameters() {
+        let ir = build_ir(&request(vec![test_file(vec![streaming_method(
+            "ClientStream",
+            ".test.v1.TestRequest",
+            http_rule(4, "/test/{data}/stream", Some("*")),
+            true,
+            false,
+        )])]))
+        .unwrap();
+
+        let err = plan_file_shapes(&ir, &ir.files[0], &CodegenOptions::default()).unwrap_err();
+
+        assert!(err.to_string().contains("cannot bind path parameters"));
+    }
+
+    #[test]
+    fn client_streaming_rejects_query_parameters() {
+        let ir = build_ir(&request(vec![test_file(vec![streaming_method(
+            "ClientStream",
+            ".test.v1.TestRequest",
+            http_rule(4, "/test:stream", None),
+            true,
+            false,
+        )])]))
+        .unwrap();
+
+        let err = plan_file_shapes(&ir, &ir.files[0], &CodegenOptions::default()).unwrap_err();
+
+        assert!(err.to_string().contains("cannot bind query parameters"));
+    }
+
+    #[test]
+    fn client_streaming_rejects_field_body_bindings() {
+        let ir = build_ir(&request(vec![single_field_file(vec![streaming_method(
+            "ClientStream",
+            ".test.v1.NameRequest",
+            http_rule(4, "/test:stream", Some("name")),
+            true,
+            false,
+        )])]))
+        .unwrap();
+
+        let err = plan_file_shapes(&ir, &ir.files[0], &CodegenOptions::default()).unwrap_err();
+
+        assert!(err.to_string().contains("must use body: \"*\""));
+    }
+
     fn generated_body_name(shape: &super::RequestShape) -> &str {
         match &shape.body_shape {
             Some(RequestPartShape::GeneratedDto { name, .. }) => name.as_ref(),
@@ -793,6 +922,16 @@ mod tests {
     }
 
     fn method(name: &str, input_type: &str, http_rule: Vec<u8>) -> MethodDescriptorProto {
+        streaming_method(name, input_type, http_rule, false, false)
+    }
+
+    fn streaming_method(
+        name: &str,
+        input_type: &str,
+        http_rule: Vec<u8>,
+        client_streaming: bool,
+        server_streaming: bool,
+    ) -> MethodDescriptorProto {
         let mut options = MethodOptions::default();
         options.__buffa_unknown_fields.push(UnknownField {
             number: HTTP_EXTENSION_NUMBER,
@@ -803,6 +942,8 @@ mod tests {
             name: Some(name.into()),
             input_type: Some(input_type.into()),
             output_type: Some(".test.v1.TestReply".into()),
+            client_streaming: Some(client_streaming),
+            server_streaming: Some(server_streaming),
             options: MessageField::some(options),
             ..Default::default()
         }

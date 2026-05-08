@@ -9,9 +9,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+async-stream.workspace = true
 axum.workspace = true
+axum-extra.workspace = true
+bytes.workspace = true
 buffa.workspace = true
 connectrpc.workspace = true
+futures-util.workspace = true
 http.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
