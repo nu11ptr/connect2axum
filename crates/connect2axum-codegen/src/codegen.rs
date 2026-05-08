@@ -7,7 +7,9 @@ use syn::{Ident, Path, Type};
 use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
-use crate::ir::{CommentSet, DescriptorIr, HttpVerb, Method, ProtoFile, Service};
+use crate::ir::{
+    CommentSet, DescriptorIr, Field, FieldKind, FieldLabel, HttpVerb, Method, ProtoFile, Service,
+};
 use crate::options::CodegenOptions;
 use crate::resolver::TypeResolver;
 use crate::shape::{
@@ -331,7 +333,8 @@ fn dto_tokens(dto: &GeneratedDto) -> CodegenResult<TokenStream> {
 
     Ok(quote! {
         #(#comments)*
-        #[derive(Clone, Debug, serde::Deserialize)]
+        #[derive(Clone, Debug, Default, serde::Deserialize)]
+        #[serde(default)]
         pub struct #dto_ident {
             #(#fields),*
         }
@@ -345,11 +348,68 @@ fn dto_field_tokens(field: &ShapeField) -> CodegenResult<TokenStream> {
         "DTO field",
     )?;
     let field_type = parse_type(field.rust_type.as_str(), "DTO field type")?;
+    let serde_attrs = serde_field_attrs(&field.field)?;
 
     Ok(quote! {
         #(#comments)*
+        #(#serde_attrs)*
         pub #field_ident: #field_type
     })
+}
+
+fn serde_field_attrs(field: &Field) -> CodegenResult<Vec<TokenStream>> {
+    let json_name = field.json_name.as_ref();
+    let proto_name = field.name.as_ref();
+    let alias = if json_name == proto_name {
+        quote! {}
+    } else {
+        quote! { , alias = #proto_name }
+    };
+    let with = serde_with_module(field)
+        .map(|module| quote! { , with = #module })
+        .unwrap_or_default();
+    let deserialize_with = serde_deserialize_with(field)
+        .map(|module| quote! { , deserialize_with = #module })
+        .unwrap_or_default();
+
+    Ok(vec![quote! {
+        #[serde(rename = #json_name #alias #with #deserialize_with)]
+    }])
+}
+
+fn serde_with_module(field: &Field) -> Option<&'static str> {
+    if field.label == Some(FieldLabel::Repeated) {
+        return Some(match field.kind {
+            FieldKind::Enum(_) => "::buffa::json_helpers::repeated_enum",
+            _ => "::buffa::json_helpers::proto_seq",
+        });
+    }
+
+    match field.kind {
+        FieldKind::Double => Some("::buffa::json_helpers::double"),
+        FieldKind::Float => Some("::buffa::json_helpers::float"),
+        FieldKind::Int64 | FieldKind::Sint64 | FieldKind::Sfixed64 => {
+            Some("::buffa::json_helpers::int64")
+        }
+        FieldKind::Uint64 | FieldKind::Fixed64 => Some("::buffa::json_helpers::uint64"),
+        FieldKind::Int32 | FieldKind::Sint32 | FieldKind::Sfixed32 => {
+            Some("::buffa::json_helpers::int32")
+        }
+        FieldKind::Uint32 | FieldKind::Fixed32 => Some("::buffa::json_helpers::uint32"),
+        FieldKind::Bool => Some("::buffa::json_helpers::proto_bool"),
+        FieldKind::String => Some("::buffa::json_helpers::proto_string"),
+        FieldKind::Bytes => Some("::buffa::json_helpers::bytes"),
+        FieldKind::Enum(_) => Some("::buffa::json_helpers::proto_enum"),
+        FieldKind::Group(_) | FieldKind::Message(_) | FieldKind::Unknown => None,
+    }
+}
+
+fn serde_deserialize_with(field: &Field) -> Option<&'static str> {
+    if field.label == Some(FieldLabel::Repeated) && serde_with_module(field).is_none() {
+        Some("::buffa::json_helpers::null_as_default")
+    } else {
+        None
+    }
 }
 
 fn comment_attrs(comments: &CommentSet) -> Vec<TokenStream> {
@@ -615,9 +675,16 @@ pub mod test_service_rest {
     use axum::extract::{Path, Query, State};
     use axum::Json;
     use http::{Extensions, HeaderMap};
-    #[derive(Clone, Debug, serde::Deserialize)]
+    #[derive(Clone, Debug, Default, serde::Deserialize)]
+    #[serde(default)]
     pub struct TestRequestQuery__ {
-        pub test_type: crate::proto::test::v1::Tester,
+        #[serde(
+            rename = "testType",
+            alias = "test_type",
+            with = "::buffa::json_helpers::proto_enum"
+        )]
+        pub test_type: ::buffa::EnumValue<crate::proto::test::v1::Tester>,
+        #[serde(rename = "tester")]
         pub tester: crate::proto::test::v1::Nested,
     }
     pub async fn get_one<S>(
@@ -652,7 +719,9 @@ pub mod test_service_rest {
         State(service__): State<Arc<S>>,
         Path(
             (data__, test_type__),
-        ): Path<(::std::string::String, crate::proto::test::v1::Tester)>,
+        ): Path<
+            (::std::string::String, ::buffa::EnumValue<crate::proto::test::v1::Tester>),
+        >,
         headers__: HeaderMap,
         extensions__: Extensions,
         Json(body__): Json<crate::proto::test::v1::Nested>,
@@ -854,13 +923,19 @@ pub mod test_service_rest {
     }
 
     fn field(name: &str, number: i32, kind: Type, type_name: Option<&str>) -> FieldDescriptorProto {
+        let json_name = if name == "test_type" {
+            "testType"
+        } else {
+            name
+        };
+
         FieldDescriptorProto {
             name: Some(name.into()),
             number: Some(number),
             label: Some(Label::LABEL_OPTIONAL),
             r#type: Some(kind),
             type_name: type_name.map(str::to_owned),
-            json_name: Some(name.into()),
+            json_name: Some(json_name.into()),
             ..Default::default()
         }
     }
@@ -1028,6 +1103,57 @@ pub type ServiceResult<B> = Result<Response<B>, ConnectError>;
 
 pub trait Encodable<M> {}
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EnumValue<E> {
+    Known(E),
+    Unknown(i32),
+}
+
+impl<E: Default> Default for EnumValue<E> {
+    fn default() -> Self {
+        Self::Known(E::default())
+    }
+}
+
+impl<E> From<E> for EnumValue<E> {
+    fn from(value: E) -> Self {
+        Self::Known(value)
+    }
+}
+
+impl<'de, E> serde::Deserialize<'de> for EnumValue<E>
+where
+    E: serde::Deserialize<'de>,
+{
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        E::deserialize(d).map(Self::Known)
+    }
+}
+
+pub mod json_helpers {
+    pub mod proto_string {
+        pub fn deserialize<'de, D>(d: D) -> Result<::std::string::String, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            serde::Deserialize::deserialize(d)
+        }
+    }
+
+    pub mod proto_enum {
+        pub fn deserialize<'de, E, D>(d: D) -> Result<crate::EnumValue<E>, D::Error>
+        where
+            E: serde::Deserialize<'de>,
+            D: serde::Deserializer<'de>,
+        {
+            E::deserialize(d).map(crate::EnumValue::Known)
+        }
+    }
+}
+
 pub mod view {
     pub trait MessageView<'a> {
         type Owned;
@@ -1093,7 +1219,7 @@ pub mod proto {
             #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize)]
             pub struct TestRequest {
                 pub data: ::std::string::String,
-                pub test_type: Tester,
+                pub test_type: ::buffa::EnumValue<Tester>,
                 pub tester: Nested,
             }
 
@@ -1236,7 +1362,7 @@ mod generated_handler_tests {
             State(service.clone()),
             Path("alpha".to_owned()),
             Query(crate::test_service_rest::TestRequestQuery__ {
-                test_type: Tester::Known,
+                test_type: Tester::Known.into(),
                 tester: Nested {
                     data: "query".to_owned(),
                 },
@@ -1250,7 +1376,7 @@ mod generated_handler_tests {
             service.calls(),
             vec![Call::Test(TestRequest {
                 data: "alpha".to_owned(),
-                test_type: Tester::Known,
+                test_type: Tester::Known.into(),
                 tester: Nested {
                     data: "query".to_owned(),
                 },
@@ -1266,7 +1392,7 @@ mod generated_handler_tests {
             State(service),
             Path("alpha".to_owned()),
             Query(crate::test_service_rest::TestRequestQuery__ {
-                test_type: Tester::Known,
+                test_type: Tester::Known.into(),
                 tester: Nested {
                     data: "query".to_owned(),
                 },
@@ -1285,7 +1411,7 @@ mod generated_handler_tests {
 
         let response = block_on(crate::test_service_rest::do_test(
             State(service.clone()),
-            Path(("alpha".to_owned(), Tester::Known)),
+            Path(("alpha".to_owned(), Tester::Known.into())),
             HeaderMap,
             Extensions,
             Json(Nested {
@@ -1298,7 +1424,7 @@ mod generated_handler_tests {
             service.calls(),
             vec![Call::Test(TestRequest {
                 data: "alpha".to_owned(),
-                test_type: Tester::Known,
+                test_type: Tester::Known.into(),
                 tester: Nested {
                     data: "body".to_owned(),
                 },
@@ -1311,7 +1437,7 @@ mod generated_handler_tests {
         let service = Arc::new(RecordingService::default());
         let request = TestRequest {
             data: "whole".to_owned(),
-            test_type: Tester::Known,
+            test_type: Tester::Known.into(),
             tester: Nested {
                 data: "body".to_owned(),
             },

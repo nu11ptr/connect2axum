@@ -94,15 +94,15 @@ impl<'a> TypeResolver<'a> {
             FieldKind::Uint32 | FieldKind::Fixed32 => "u32".to_owned(),
             FieldKind::Bool => "bool".to_owned(),
             FieldKind::String => "::std::string::String".to_owned(),
-            FieldKind::Bytes => "::std::vec::Vec<u8>".to_owned(),
+            FieldKind::Bytes => "::buffa::bytes::Bytes".to_owned(),
             FieldKind::Group(type_name) | FieldKind::Message(type_name) => self
                 .owned_message_type(type_name.as_ref())?
                 .as_str()
                 .to_owned(),
-            FieldKind::Enum(type_name) => self
-                .proto_type_path(type_name.as_ref())?
-                .as_str()
-                .to_owned(),
+            FieldKind::Enum(type_name) => {
+                let enum_type = self.proto_type_path(type_name.as_ref())?;
+                format!("::buffa::EnumValue<{}>", enum_type.as_str())
+            }
             FieldKind::Unknown => {
                 return Err(UniError::from_kind_context(
                     CodegenErrKind::TypeResolutionFailed,
@@ -260,7 +260,7 @@ mod tests {
 
         assert_eq!(
             resolver.field_rust_type(field).unwrap().as_str(),
-            "crate::proto::test::v1::Tester"
+            "::buffa::EnumValue<crate::proto::test::v1::Tester>"
         );
     }
 

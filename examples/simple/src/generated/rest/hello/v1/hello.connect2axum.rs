@@ -9,15 +9,23 @@ pub mod greeter_service_rest {
     use axum::Json;
     use http::{Extensions, HeaderMap};
     /// The request message containing the user's name.
-    #[derive(Clone, Debug, serde::Deserialize)]
+    #[derive(Clone, Debug, Default, serde::Deserialize)]
+    #[serde(default)]
     pub struct HelloRequestBody__ {
         /// The last name of the person to greet.
+        #[serde(
+            rename = "lastName",
+            alias = "last_name",
+            with = "::buffa::json_helpers::proto_string"
+        )]
         pub last_name: ::std::string::String,
     }
     /// The request message containing the user's name.
-    #[derive(Clone, Debug, serde::Deserialize)]
+    #[derive(Clone, Debug, Default, serde::Deserialize)]
+    #[serde(default)]
     pub struct HelloRequestQuery__ {
         /// The salutation to use.
+        #[serde(rename = "salutation", with = "::buffa::json_helpers::proto_string")]
         pub salutation: ::std::string::String,
     }
     pub async fn say_hello<S>(

@@ -13,3 +13,5 @@ axum.workspace = true
 buffa.workspace = true
 connectrpc.workspace = true
 http.workspace = true
+serde.workspace = true
+serde_json.workspace = true

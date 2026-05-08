@@ -67,7 +67,7 @@ mod tests {
                     .method(Method::POST)
                     .uri("/v1/hello/Jane?salutation=Ahoy")
                     .header(CONTENT_TYPE, "application/json")
-                    .body(Body::from(r#"{"last_name":"Doe"}"#))
+                    .body(Body::from(r#"{"lastName":"Doe"}"#))
                     .expect("request builds"),
             )
             .await
