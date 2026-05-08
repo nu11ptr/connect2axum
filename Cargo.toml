@@ -5,6 +5,7 @@ members = [
     "crates/connect2axum-codegen",
     "examples/simple",
     "examples/streaming",
+    "examples/ws-streaming",
 ]
 
 [workspace.package]

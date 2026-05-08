@@ -15,6 +15,10 @@ path = "src/lib.rs"
 name = "protoc-gen-connect2rest"
 path = "src/bin/protoc-gen-connect2rest.rs"
 
+[[bin]]
+name = "protoc-gen-connect2ws"
+path = "src/bin/protoc-gen-connect2ws.rs"
+
 [dependencies]
 buffa.workspace = true
 buffa-codegen.workspace = true

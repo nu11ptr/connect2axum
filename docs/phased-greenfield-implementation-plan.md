@@ -778,6 +778,9 @@ Implementation:
   - `close_ws` plus a Connect error to WebSocket close-frame mapping.
 - Keep WebSocket payloads JSON-only:
   - accept text frames containing one complete ProtoJSON object per frame;
+  - for client/bidi request streams, reserve an empty text frame as the
+    end-of-request-stream marker because WebSocket has no half-close that still
+    allows a unary response;
   - reject or close on binary frames instead of supporting protobuf frames;
   - do not generate `/ws/proto` routes;
   - default route suffix is `{http_path}/ws`.

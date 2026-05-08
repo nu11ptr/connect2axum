@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package streaming.v1;
+
+import "google/api/annotations.proto";
+
+service GreeterService {
+  rpc Expand(HelloRequest) returns (stream HelloReply) {
+    option (google.api.http) = {
+      post: "/hello/expand"
+      body: "*"
+    };
+  }
+
+  rpc Collect(stream HelloRequest) returns (HelloSummary) {
+    option (google.api.http) = {
+      post: "/hello/collect"
+      body: "*"
+    };
+  }
+
+  rpc Chat(stream HelloRequest) returns (stream HelloReply) {
+    option (google.api.http) = {
+      post: "/hello/chat"
+      body: "*"
+    };
+  }
+
+  rpc Unary(HelloRequest) returns (HelloReply) {
+    option (google.api.http) = {
+      post: "/hello/unary"
+      body: "*"
+    };
+  }
+}
+
+message HelloRequest {
+  string first_name = 1;
+  string last_name = 2;
+}
+
+message HelloReply {
+  string message = 1;
+}
+
+message HelloSummary {
+  repeated string names = 1;
+}

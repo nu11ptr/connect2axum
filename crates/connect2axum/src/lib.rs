@@ -17,6 +17,10 @@ pub mod streaming;
 const JSON_CONTENT_TYPE: &str = "application/json";
 
 pub use streaming::http::{JsonLines, ndjson_request_stream, stream_response};
+pub use streaming::ws::{
+    close_ws, connect_error_to_ws_close_frame, make_ws_request, make_ws_stream_request,
+    process_ws_response, process_ws_stream_response, upgrade_to_ws,
+};
 
 /// The crate version, as declared by Cargo.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

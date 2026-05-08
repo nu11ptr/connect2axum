@@ -8,6 +8,7 @@ mod options;
 mod resolver;
 mod rest;
 mod shape;
+mod ws;
 
 pub use connectrpc_codegen::plugin::{CodeGeneratorRequest, CodeGeneratorResponse};
 pub use error::{CodegenErrKind, CodegenResult};
@@ -45,6 +46,40 @@ pub fn try_generate_rest(request: &CodeGeneratorRequest) -> CodegenResult<CodeGe
         .file_to_generate
         .iter()
         .map(|file_name| rest::generate_file(&ir, file_name, &options))
+        .collect::<CodegenResult<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
+
+    Ok(CodeGeneratorResponse {
+        file: files,
+        ..Default::default()
+    })
+}
+
+/// Generate a WebSocket protoc plugin response for a request.
+///
+/// Errors are returned through the protoc plugin error field so `buf generate`
+/// and `protoc` can display them as compiler-plugin failures.
+#[must_use]
+pub fn generate_ws(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
+    match try_generate_ws(request) {
+        Ok(response) => response,
+        Err(err) => CodeGeneratorResponse {
+            error: Some(err.to_string()),
+            ..Default::default()
+        },
+    }
+}
+
+/// Generate a WebSocket protoc plugin response, returning typed project errors.
+pub fn try_generate_ws(request: &CodeGeneratorRequest) -> CodegenResult<CodeGeneratorResponse> {
+    let options = CodegenOptions::parse(request.parameter.as_deref())?;
+    let ir = build_ir(request)?;
+    let files = request
+        .file_to_generate
+        .iter()
+        .map(|file_name| ws::generate_file(&ir, file_name, &options))
         .collect::<CodegenResult<Vec<_>>>()?
         .into_iter()
         .flatten()
