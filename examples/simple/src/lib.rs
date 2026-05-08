@@ -18,6 +18,7 @@ pub mod rest;
 
 use connect::hello::v1::GreeterServiceExt as _;
 use connect::hello::v1::OwnedHelloRequestView;
+use proto::hello::v1::__buffa::view::HelloReplyView;
 use proto::hello::v1::HelloReply;
 
 #[derive(Clone, Debug, Default)]
@@ -29,13 +30,15 @@ impl connect::hello::v1::GreeterService for Greeter {
         _ctx: RequestContext,
         request: OwnedHelloRequestView,
     ) -> ServiceResult<impl connectrpc::Encodable<HelloReply> + Send + use<'a>> {
-        Response::ok(HelloReply {
+        let reply = HelloReply {
             message: format!(
                 "Hello, {} {} {}!",
                 request.salutation, request.first_name, request.last_name
             ),
             ..Default::default()
-        })
+        };
+        let reply = connect2axum::owned_view::<HelloReplyView<'static>>(&reply)?;
+        Response::ok(connect2axum::json_compatible_view(reply))
     }
 }
 
@@ -67,7 +70,7 @@ mod tests {
                     .method(Method::POST)
                     .uri("/v1/hello/Jane?salutation=Ahoy")
                     .header(CONTENT_TYPE, "application/json")
-                    .body(Body::from(r#"{"last_name":"Doe"}"#))
+                    .body(Body::from(r#""Doe""#))
                     .expect("request builds"),
             )
             .await

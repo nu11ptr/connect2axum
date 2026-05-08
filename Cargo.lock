@@ -137,7 +137,11 @@ dependencies = [
  "axum",
  "buffa",
  "connectrpc",
+ "form_urlencoded",
  "http",
+ "percent-encoding",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

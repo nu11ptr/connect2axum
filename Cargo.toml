@@ -19,10 +19,14 @@ axum = { version = "0.8", default-features = false }
 connectrpc = { version = "0.4", default-features = false }
 connectrpc-codegen = "0.4"
 flexstr = { version = "0.11", features = ["std", "str"] }
+form_urlencoded = "1"
 heck = "0.5"
 http = "1"
+percent-encoding = "2"
 prettyplease = "0.2"
 proc-macro2 = "1"
 quote = "1"
+serde = "1"
+serde_json = "1"
 syn = "2"
 uni_error = "0.11"
