@@ -1,0 +1,306 @@
+{
+  "asyncapi": "3.1.0",
+  "channels": {
+    "/hello/chat/ws": {
+      "address": "/hello/chat/ws",
+      "messages": {
+        "request": {
+          "$ref": "#/components/messages/streaming.v1.GreeterService.Chat.request"
+        },
+        "response": {
+          "$ref": "#/components/messages/streaming.v1.GreeterService.Chat.response"
+        }
+      },
+      "x-connect2axum-websocket": {
+        "json": true,
+        "route": "/hello/chat/ws",
+        "rpc": "streaming.v1.GreeterService.Chat"
+      }
+    },
+    "/hello/collect/ws": {
+      "address": "/hello/collect/ws",
+      "messages": {
+        "request": {
+          "$ref": "#/components/messages/streaming.v1.GreeterService.Collect.request"
+        },
+        "response": {
+          "$ref": "#/components/messages/streaming.v1.GreeterService.Collect.response"
+        }
+      },
+      "x-connect2axum-websocket": {
+        "json": true,
+        "route": "/hello/collect/ws",
+        "rpc": "streaming.v1.GreeterService.Collect"
+      }
+    },
+    "/hello/expand/ws": {
+      "address": "/hello/expand/ws",
+      "messages": {
+        "request": {
+          "$ref": "#/components/messages/streaming.v1.GreeterService.Expand.request"
+        },
+        "response": {
+          "$ref": "#/components/messages/streaming.v1.GreeterService.Expand.response"
+        }
+      },
+      "x-connect2axum-websocket": {
+        "json": true,
+        "route": "/hello/expand/ws",
+        "rpc": "streaming.v1.GreeterService.Expand"
+      }
+    }
+  },
+  "components": {
+    "messages": {
+      "streaming.v1.GreeterService.Chat.request": {
+        "contentType": "application/json",
+        "name": "streaming.v1.GreeterService.Chat.request",
+        "payload": {
+          "$ref": "#/components/schemas/streaming.v1.HelloRequest"
+        }
+      },
+      "streaming.v1.GreeterService.Chat.response": {
+        "contentType": "application/json",
+        "name": "streaming.v1.GreeterService.Chat.response",
+        "payload": {
+          "$ref": "#/components/schemas/streaming.v1.HelloReply"
+        }
+      },
+      "streaming.v1.GreeterService.Collect.request": {
+        "contentType": "application/json",
+        "name": "streaming.v1.GreeterService.Collect.request",
+        "payload": {
+          "$ref": "#/components/schemas/streaming.v1.HelloRequest"
+        }
+      },
+      "streaming.v1.GreeterService.Collect.response": {
+        "contentType": "application/json",
+        "name": "streaming.v1.GreeterService.Collect.response",
+        "payload": {
+          "$ref": "#/components/schemas/streaming.v1.HelloSummary"
+        }
+      },
+      "streaming.v1.GreeterService.Expand.request": {
+        "contentType": "application/json",
+        "name": "streaming.v1.GreeterService.Expand.request",
+        "payload": {
+          "$ref": "#/components/schemas/streaming.v1.HelloRequest"
+        }
+      },
+      "streaming.v1.GreeterService.Expand.response": {
+        "contentType": "application/json",
+        "name": "streaming.v1.GreeterService.Expand.response",
+        "payload": {
+          "$ref": "#/components/schemas/streaming.v1.HelloReply"
+        }
+      }
+    },
+    "schemas": {
+      "streaming.v1.HelloReply": {
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "streaming.v1.HelloRequest": {
+        "properties": {
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "streaming.v1.HelloSummary": {
+        "properties": {
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  "defaultContentType": "application/json",
+  "info": {
+    "description": "WebSocket streaming connect2axum example API.",
+    "title": "WebSocket Streaming API",
+    "version": "0.1.0"
+  },
+  "operations": {
+    "streaming_v1_GreeterService_Chat_receive": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/~1hello~1chat~1ws"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/~1hello~1chat~1ws/messages/request"
+        }
+      ],
+      "summary": "Receive GreeterService Chat",
+      "tags": [
+        {
+          "name": "GreeterService"
+        }
+      ],
+      "x-connect2axum-end-of-stream": {
+        "description": "An empty text frame ends the client request stream while keeping the WebSocket open for response frames.",
+        "frameType": "text",
+        "payload": ""
+      },
+      "x-connect2axum-streaming": {
+        "cardinality": "stream",
+        "direction": "receive",
+        "framing": "json-text-frame",
+        "rpc": "streaming.v1.GreeterService.Chat",
+        "transport": "websocket"
+      }
+    },
+    "streaming_v1_GreeterService_Chat_send": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/~1hello~1chat~1ws"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/~1hello~1chat~1ws/messages/response"
+        }
+      ],
+      "summary": "Send GreeterService Chat",
+      "tags": [
+        {
+          "name": "GreeterService"
+        }
+      ],
+      "x-connect2axum-streaming": {
+        "cardinality": "stream",
+        "direction": "send",
+        "framing": "json-text-frame",
+        "rpc": "streaming.v1.GreeterService.Chat",
+        "transport": "websocket"
+      }
+    },
+    "streaming_v1_GreeterService_Collect_receive": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/~1hello~1collect~1ws"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/~1hello~1collect~1ws/messages/request"
+        }
+      ],
+      "summary": "Receive GreeterService Collect",
+      "tags": [
+        {
+          "name": "GreeterService"
+        }
+      ],
+      "x-connect2axum-end-of-stream": {
+        "description": "An empty text frame ends the client request stream while keeping the WebSocket open for response frames.",
+        "frameType": "text",
+        "payload": ""
+      },
+      "x-connect2axum-streaming": {
+        "cardinality": "stream",
+        "direction": "receive",
+        "framing": "json-text-frame",
+        "rpc": "streaming.v1.GreeterService.Collect",
+        "transport": "websocket"
+      }
+    },
+    "streaming_v1_GreeterService_Collect_send": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/~1hello~1collect~1ws"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/~1hello~1collect~1ws/messages/response"
+        }
+      ],
+      "summary": "Send GreeterService Collect",
+      "tags": [
+        {
+          "name": "GreeterService"
+        }
+      ],
+      "x-connect2axum-streaming": {
+        "cardinality": "single",
+        "direction": "send",
+        "framing": "json-text-frame",
+        "rpc": "streaming.v1.GreeterService.Collect",
+        "transport": "websocket"
+      }
+    },
+    "streaming_v1_GreeterService_Expand_receive": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/~1hello~1expand~1ws"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/~1hello~1expand~1ws/messages/request"
+        }
+      ],
+      "summary": "Receive GreeterService Expand",
+      "tags": [
+        {
+          "name": "GreeterService"
+        }
+      ],
+      "x-connect2axum-streaming": {
+        "cardinality": "single",
+        "direction": "receive",
+        "framing": "json-text-frame",
+        "rpc": "streaming.v1.GreeterService.Expand",
+        "transport": "websocket"
+      }
+    },
+    "streaming_v1_GreeterService_Expand_send": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/~1hello~1expand~1ws"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/~1hello~1expand~1ws/messages/response"
+        }
+      ],
+      "summary": "Send GreeterService Expand",
+      "tags": [
+        {
+          "name": "GreeterService"
+        }
+      ],
+      "x-connect2axum-streaming": {
+        "cardinality": "stream",
+        "direction": "send",
+        "framing": "json-text-frame",
+        "rpc": "streaming.v1.GreeterService.Expand",
+        "transport": "websocket"
+      }
+    }
+  },
+  "servers": {
+    "default": {
+      "description": "Local WebSocket server",
+      "host": "127.0.0.1:8002",
+      "pathname": "/v1",
+      "protocol": "ws"
+    }
+  },
+  "tags": [
+    {
+      "name": "GreeterService"
+    }
+  ]
+}

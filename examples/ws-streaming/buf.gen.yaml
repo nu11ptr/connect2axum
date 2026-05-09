@@ -27,3 +27,8 @@ plugins:
     opt:
       - buffa_module=crate::proto
       - connect_module=crate::connect
+  - local: protoc-gen-connect2asyncapi
+    out: src/generated/asyncapi
+    strategy: all
+    opt:
+      - config=connect2asyncapi.yaml

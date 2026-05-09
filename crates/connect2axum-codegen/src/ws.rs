@@ -450,7 +450,7 @@ fn has_path_or_query(shape: &RequestShape) -> bool {
     !shape.path_fields.is_empty() || shape.query_shape.is_some()
 }
 
-fn ws_route_path(path: &str) -> String {
+pub(crate) fn ws_route_path(path: &str) -> String {
     let path = path.trim_end_matches('/');
     if path.is_empty() {
         "/ws".to_owned()

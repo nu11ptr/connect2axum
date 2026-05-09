@@ -2,13 +2,14 @@ use std::borrow::Cow;
 
 use uni_error::{Cause, UniKind};
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum CodegenErrKind {
     InvalidPluginOption,
     UnknownPluginOption,
     OpenApiPluginFailed,
     OpenApiInvalidDocument,
     OpenApiMergeConflict,
+    AsyncApiInvalidDocument,
     FileToGenerateNotFound,
     InvalidDescriptor,
     InvalidHttpAnnotation,
@@ -29,6 +30,7 @@ impl UniKind for CodegenErrKind {
             Self::OpenApiPluginFailed => Some("OpenAPI generator failed".into()),
             Self::OpenApiInvalidDocument => Some("invalid OpenAPI document".into()),
             Self::OpenApiMergeConflict => Some("OpenAPI documents could not be merged".into()),
+            Self::AsyncApiInvalidDocument => Some("invalid AsyncAPI document".into()),
             Self::FileToGenerateNotFound => {
                 Some("file_to_generate was not found in the descriptor set".into())
             }

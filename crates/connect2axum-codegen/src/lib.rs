@@ -1,6 +1,7 @@
 //! Protoc/Buf code generation for `connect2axum`.
 //!
 
+mod asyncapi;
 mod error;
 mod guardrails;
 mod http;
@@ -115,6 +116,30 @@ pub fn try_generate_openapi(
     request: &CodeGeneratorRequest,
 ) -> CodegenResult<CodeGeneratorResponse> {
     openapi::generate(request)
+}
+
+/// Generate an AsyncAPI v3.1 protoc plugin response for generated WebSocket
+/// routes.
+///
+/// Errors are returned through the protoc plugin error field so `buf generate`
+/// and `protoc` can display them as compiler-plugin failures.
+#[must_use]
+pub fn generate_asyncapi(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
+    match try_generate_asyncapi(request) {
+        Ok(response) => response,
+        Err(err) => CodeGeneratorResponse {
+            error: Some(err.to_string()),
+            ..Default::default()
+        },
+    }
+}
+
+/// Generate an AsyncAPI v3.1 protoc plugin response, returning typed project
+/// errors.
+pub fn try_generate_asyncapi(
+    request: &CodeGeneratorRequest,
+) -> CodegenResult<CodeGeneratorResponse> {
+    asyncapi::generate(request)
 }
 
 #[cfg(test)]

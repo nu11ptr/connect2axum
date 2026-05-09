@@ -1,0 +1,8 @@
+info:
+  title: WebSocket Streaming API
+  version: 0.1.0
+  description: WebSocket streaming connect2axum example API.
+
+servers:
+  - url: ws://127.0.0.1:8002/v1
+    description: Local WebSocket server

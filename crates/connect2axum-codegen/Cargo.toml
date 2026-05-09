@@ -23,6 +23,10 @@ path = "src/bin/protoc-gen-connect2ws.rs"
 name = "protoc-gen-connect2openapi"
 path = "src/bin/protoc-gen-connect2openapi.rs"
 
+[[bin]]
+name = "protoc-gen-connect2asyncapi"
+path = "src/bin/protoc-gen-connect2asyncapi.rs"
+
 [dependencies]
 buffa.workspace = true
 buffa-codegen.workspace = true

@@ -23,9 +23,17 @@ pub(crate) struct DocConfig {
 
 impl DocConfig {
     pub(crate) fn from_path(path: &Path) -> CodegenResult<Self> {
+        Self::from_path_with_kind(path, CodegenErrKind::OpenApiInvalidDocument)
+    }
+
+    pub(crate) fn from_asyncapi_path(path: &Path) -> CodegenResult<Self> {
+        Self::from_path_with_kind(path, CodegenErrKind::AsyncApiInvalidDocument)
+    }
+
+    fn from_path_with_kind(path: &Path, error_kind: CodegenErrKind) -> CodegenResult<Self> {
         let content = std::fs::read_to_string(path).map_err(|err| {
             UniError::from_kind_context(
-                CodegenErrKind::OpenApiInvalidDocument,
+                error_kind,
                 format!(
                     "failed to read API document config {}: {err}",
                     path.display()
@@ -35,7 +43,7 @@ impl DocConfig {
 
         serde_yaml::from_str(&content).map_err(|err| {
             UniError::from_kind_context(
-                CodegenErrKind::OpenApiInvalidDocument,
+                error_kind,
                 format!(
                     "failed to parse API document config {}: {err}",
                     path.display()

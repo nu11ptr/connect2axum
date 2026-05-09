@@ -1050,6 +1050,21 @@ Implementation:
     many response messages;
   - unary RPCs are skipped because `connect2ws` does not generate unary
     WebSocket routes.
+
+Implemented decision:
+
+- `protoc-gen-connect2asyncapi` is implemented as a native descriptor/IR-based
+  generator rather than as a postprocessor over OpenAPI.
+- Channels are keyed by the generated WebSocket route path, such as
+  `/hello/chat/ws`, with `request` and `response` channel messages.
+- Operations are generated from the server application's point of view:
+  `receive` for client-to-server JSON frames and `send` for server-to-client
+  JSON frames.
+- Reusable `components.messages` point at reusable `components.schemas`.
+- Client and bidirectional streaming request operations document the empty text
+  frame end-of-stream marker using `x-connect2axum-end-of-stream`.
+- The `examples/ws-streaming` example now checks in generated AsyncAPI output
+  under `src/generated/asyncapi/asyncapi.json`.
 - Represent the end-of-client-stream marker explicitly:
   - add an `x-connect2axum-end-of-stream` extension documenting the empty text
     frame convention;

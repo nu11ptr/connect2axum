@@ -126,6 +126,29 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
+    #[test]
+    fn generated_asyncapi_documents_websocket_routes() {
+        let document: serde_json::Value =
+            serde_json::from_str(include_str!("generated/asyncapi/asyncapi.json"))
+                .expect("generated asyncapi is valid json");
+
+        assert_eq!(document["asyncapi"], "3.1.0");
+        assert!(document["channels"].get("/hello/expand/ws").is_some());
+        assert!(document["channels"].get("/hello/collect/ws").is_some());
+        assert!(document["channels"].get("/hello/chat/ws").is_some());
+        assert!(document["channels"].get("/hello/unary/ws").is_none());
+        assert!(
+            document["operations"]
+                .get("streaming_v1_GreeterService_Chat_receive")
+                .is_some()
+        );
+        assert_eq!(
+            document["operations"]["streaming_v1_GreeterService_Collect_receive"]["x-connect2axum-end-of-stream"]
+                ["payload"],
+            ""
+        );
+    }
+
     #[tokio::test]
     async fn rest_server_streaming_endpoint_still_returns_ndjson() {
         let response = app()

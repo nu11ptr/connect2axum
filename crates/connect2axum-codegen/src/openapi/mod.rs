@@ -7,12 +7,12 @@ use crate::CodeGeneratorRequest;
 use crate::error::{CodegenErrKind, CodegenResult};
 use crate::ir::build_ir;
 
-mod comments;
-mod config;
+pub(crate) mod comments;
+pub(crate) mod config;
 mod document;
 mod grpc_gateway;
 mod model;
-mod schema;
+pub(crate) mod schema;
 mod value;
 
 use self::config::{DEFAULT_STREAMING_CONTENT_TYPE, DocConfig};
