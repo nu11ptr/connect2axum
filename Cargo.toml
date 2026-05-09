@@ -13,6 +13,7 @@ members = [
 authors = ["Scott Meeuwsen <smeeuwsen@gmail.com>"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
+homepage = "https://github.com/nu11ptr/connect2axum"
 repository = "https://github.com/nu11ptr/connect2axum"
 
 [workspace.dependencies]

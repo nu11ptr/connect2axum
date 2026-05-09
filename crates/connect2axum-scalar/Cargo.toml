@@ -1,11 +1,20 @@
 [package]
 name = "connect2axum-scalar"
 version = "0.1.0"
-description = "Embedded Scalar API reference routes for connect2axum examples"
+description = "Embedded Scalar API reference routes for connect2axum OpenAPI documents"
+readme = "../../README.md"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+homepage.workspace = true
 repository.workspace = true
+documentation = "https://docs.rs/connect2axum-scalar"
+keywords = ["scalar", "openapi", "axum", "docs"]
+categories = ["web-programming"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 axum = { workspace = true }

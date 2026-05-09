@@ -3,7 +3,7 @@ use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
 
-pub(crate) fn validate_document(document: &Value) -> CodegenResult<()> {
+pub fn validate_document(document: &Value) -> CodegenResult<()> {
     let content = serde_json::to_string(document).map_err(|err| {
         UniError::from_kind_context(
             CodegenErrKind::OpenApiInvalidDocument,

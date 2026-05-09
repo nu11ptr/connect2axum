@@ -4,7 +4,7 @@ use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
 
-pub(crate) fn ensure_unique_generated_identifiers(
+pub fn ensure_unique_generated_identifiers(
     scope: &str,
     values: impl IntoIterator<Item = (String, String)>,
 ) -> CodegenResult<()> {
@@ -16,7 +16,7 @@ pub(crate) fn ensure_unique_generated_identifiers(
     )
 }
 
-pub(crate) fn ensure_unique_routes(
+pub fn ensure_unique_routes(
     scope: &str,
     values: impl IntoIterator<Item = (String, String)>,
 ) -> CodegenResult<()> {

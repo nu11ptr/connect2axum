@@ -7,16 +7,16 @@ use syn::{Ident, Path, Type};
 use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
-use crate::guardrails::{ensure_unique_generated_identifiers, ensure_unique_routes};
-use crate::ir::{CommentSet, DescriptorIr, Method, ProtoFile, Service};
-use crate::options::CodegenOptions;
-use crate::resolver::TypeResolver;
-use crate::shape::{FileShapes, RequestShape, plan_file_shapes};
+use crate::internal::guardrails::{ensure_unique_generated_identifiers, ensure_unique_routes};
+use crate::internal::ir::{CommentSet, DescriptorIr, Method, ProtoFile, Service};
+use crate::internal::options::CodegenOptions;
+use crate::internal::resolver::TypeResolver;
+use crate::internal::shape::{FileShapes, RequestShape, plan_file_shapes};
 
 const WS_MODULE_SUFFIX: &str = "_ws";
 const ROUTER_FUNCTION_NAME: &str = "make_router";
 
-pub(crate) fn generate_file(
+pub fn generate_file(
     ir: &DescriptorIr,
     file_name: &str,
     options: &CodegenOptions,
@@ -450,7 +450,7 @@ fn has_path_or_query(shape: &RequestShape) -> bool {
     !shape.path_fields.is_empty() || shape.query_shape.is_some()
 }
 
-pub(crate) fn ws_route_path(path: &str) -> String {
+pub fn ws_route_path(path: &str) -> String {
     let path = path.trim_end_matches('/');
     if path.is_empty() {
         "/ws".to_owned()

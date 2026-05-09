@@ -2,23 +2,40 @@ use std::borrow::Cow;
 
 use uni_error::{Cause, UniKind};
 
+/// Error categories produced by the connect2axum protoc generators.
 #[derive(Clone, Copy, Debug)]
 pub enum CodegenErrKind {
+    /// A known plugin option was present but had an invalid value.
     InvalidPluginOption,
+    /// The plugin parameter string contained an unsupported option name.
     UnknownPluginOption,
+    /// The wrapped grpc-gateway OpenAPI generator failed.
     OpenApiPluginFailed,
+    /// The OpenAPI document was not valid JSON or failed structural validation.
     OpenApiInvalidDocument,
+    /// Multiple OpenAPI documents could not be merged safely.
     OpenApiMergeConflict,
+    /// The generated AsyncAPI document failed structural validation.
     AsyncApiInvalidDocument,
+    /// A requested `file_to_generate` was missing from the descriptor set.
     FileToGenerateNotFound,
+    /// A protobuf descriptor was malformed or incomplete.
     InvalidDescriptor,
+    /// A `google.api.http` annotation could not be decoded.
     InvalidHttpAnnotation,
+    /// A `google.api.http` rule used an unsupported binding shape.
     UnsupportedHttpRule,
+    /// A field referenced by a path template was missing from the request message.
     PathFieldNotFound,
+    /// A method request message could not be resolved.
     RequestMessageNotFound,
+    /// A field referenced by an HTTP body option was missing from the request message.
     BodyFieldNotFound,
+    /// A protobuf type could not be mapped to the generated Rust type path.
     TypeResolutionFailed,
+    /// Generated Rust identifiers would collide.
     DuplicateGeneratedIdentifier,
+    /// Two generated handlers would register the same HTTP route.
     DuplicateRoute,
 }
 
@@ -49,4 +66,5 @@ impl UniKind for CodegenErrKind {
     }
 }
 
+/// Result type used by connect2axum code generation entry points.
 pub type CodegenResult<T> = uni_error::UniResult<T, CodegenErrKind>;

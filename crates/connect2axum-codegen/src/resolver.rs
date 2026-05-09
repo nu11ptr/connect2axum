@@ -7,8 +7,8 @@ use heck::{ToSnakeCase, ToUpperCamelCase};
 use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
-use crate::ir::{DescriptorIr, Field, FieldKind, FieldLabel};
-use crate::options::CodegenOptions;
+use crate::internal::ir::{DescriptorIr, Field, FieldKind, FieldLabel};
+use crate::internal::options::CodegenOptions;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RustPath {
@@ -209,8 +209,8 @@ mod tests {
 
     use super::TypeResolver;
     use crate::CodeGeneratorRequest;
-    use crate::ir::build_ir;
-    use crate::options::CodegenOptions;
+    use crate::internal::ir::build_ir;
+    use crate::internal::options::CodegenOptions;
 
     #[test]
     fn resolves_buffa_owned_and_view_paths() {

@@ -13,7 +13,7 @@ use crate::error::{CodegenErrKind, CodegenResult};
 
 const DEFAULT_OPENAPIV3_BIN: &str = "protoc-gen-openapiv3";
 
-pub(crate) fn openapiv3_binary(configured: Option<&Path>) -> CodegenResult<PathBuf> {
+pub fn openapiv3_binary(configured: Option<&Path>) -> CodegenResult<PathBuf> {
     if let Some(path) = configured {
         return Ok(path.to_path_buf());
     }
@@ -41,7 +41,7 @@ pub(crate) fn openapiv3_binary(configured: Option<&Path>) -> CodegenResult<PathB
     ))
 }
 
-pub(crate) fn openapiv3_parameter(options: &[String]) -> String {
+pub fn openapiv3_parameter(options: &[String]) -> String {
     let mut options = options.to_vec();
     if !options
         .iter()
@@ -52,7 +52,7 @@ pub(crate) fn openapiv3_parameter(options: &[String]) -> String {
     options.join(",")
 }
 
-pub(crate) fn run_openapiv3(
+pub fn run_openapiv3(
     binary: &Path,
     request: &CodeGeneratorRequest,
 ) -> CodegenResult<CodeGeneratorResponse> {
@@ -128,7 +128,7 @@ pub(crate) fn run_openapiv3(
     Ok(response)
 }
 
-pub(crate) fn inject_go_packages(request: &mut CodeGeneratorRequest) {
+pub fn inject_go_packages(request: &mut CodeGeneratorRequest) {
     for file in request
         .proto_file
         .iter_mut()

@@ -5,14 +5,14 @@ use uni_error::UniError;
 
 use crate::CodeGeneratorRequest;
 use crate::error::{CodegenErrKind, CodegenResult};
-use crate::ir::build_ir;
+use crate::internal::ir::build_ir;
 
-pub(crate) mod comments;
-pub(crate) mod config;
+pub mod comments;
+pub mod config;
 mod document;
 mod grpc_gateway;
 mod model;
-pub(crate) mod schema;
+pub mod schema;
 mod value;
 
 use self::config::{DEFAULT_STREAMING_CONTENT_TYPE, DocConfig};
@@ -23,7 +23,7 @@ use self::grpc_gateway::{
 
 const DEFAULT_OUTPUT_FILE: &str = "openapi.json";
 
-pub(crate) fn generate(request: &CodeGeneratorRequest) -> CodegenResult<CodeGeneratorResponse> {
+pub fn generate(request: &CodeGeneratorRequest) -> CodegenResult<CodeGeneratorResponse> {
     let options = OpenApiOptions::parse(request.parameter.as_deref())?;
     let config = options.load_config()?;
     let ir = build_ir(request)?;
@@ -162,7 +162,7 @@ mod tests {
         patch_streaming_operations,
     };
     use super::grpc_gateway::inject_go_packages;
-    use crate::ir::{
+    use crate::internal::ir::{
         DescriptorIr, Field, FieldKind, FieldLabel, HttpBinding, HttpBody, HttpVerb, Message,
         Method, ProtoFile, Service,
     };

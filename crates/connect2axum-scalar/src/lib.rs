@@ -10,6 +10,9 @@ use axum::routing::get;
 use bytes::Bytes;
 use http::header::{CACHE_CONTROL, CONTENT_TYPE};
 
+#[cfg(docsrs)]
+const SCALAR_JS: &str = "";
+#[cfg(not(docsrs))]
 const SCALAR_JS: &str = include_str!(concat!(env!("OUT_DIR"), "/scalar-api-reference.js"));
 
 /// The Scalar API Reference version embedded by this crate.
@@ -18,9 +21,13 @@ pub const SCALAR_VERSION: &str = env!("CONNECT2AXUM_SCALAR_VERSION");
 /// Route and page options for the embedded Scalar API reference.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScalarOptions {
+    /// Route path for the Scalar HTML page.
     pub docs_path: String,
+    /// Route path where the OpenAPI JSON document is served.
     pub spec_path: String,
+    /// Route path where the embedded Scalar JavaScript bundle is served.
     pub js_path: String,
+    /// Browser page title for the Scalar HTML page.
     pub title: String,
 }
 

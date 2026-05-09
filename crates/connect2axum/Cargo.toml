@@ -1,12 +1,19 @@
 [package]
 name = "connect2axum"
 version = "0.1.0"
-description = "Runtime helpers for generated REST/OpenAPI endpoint wrappers over ConnectRPC services"
+description = "Runtime helpers for generated REST and WebSocket wrappers over ConnectRPC services"
 readme = "../../README.md"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+homepage.workspace = true
 repository.workspace = true
+documentation = "https://docs.rs/connect2axum"
+keywords = ["axum", "connectrpc", "protobuf", "rest", "websocket"]
+categories = ["network-programming", "web-programming"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 async-stream.workspace = true

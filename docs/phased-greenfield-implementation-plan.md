@@ -231,8 +231,8 @@ Implementation:
     clear plugin errors rather than silently generating wrong code.
 - Parse source comments from `SourceCodeInfo` for services, methods, messages,
   and fields. This replaces the old `syn` doc-comment extraction.
-- Add fixture protos copied from `tonic2axum-build/tests/proto` into
-  `connect2axum` test fixtures, not imported from the old repo at test time.
+- Build descriptor fixtures directly in codegen unit tests so the repo does not
+  need a separate test fixture proto tree.
 - Add tests for:
   - unary POST with path fields and single-field body,
   - no binding means no generated route,

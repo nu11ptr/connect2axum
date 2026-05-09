@@ -6,13 +6,11 @@ use flexstr::ToOwnedFlexStr as _;
 use uni_error::{ResultContext as _, UniError};
 
 use crate::error::{CodegenErrKind, CodegenResult};
-use crate::ir::{HttpBinding, HttpBody, HttpVerb};
+use crate::internal::ir::{HttpBinding, HttpBody, HttpVerb};
 
-pub(crate) const HTTP_EXTENSION_NUMBER: u32 = 72_295_728;
+pub const HTTP_EXTENSION_NUMBER: u32 = 72_295_728;
 
-pub(crate) fn extract_http_binding(
-    method: &MethodDescriptorProto,
-) -> CodegenResult<Option<HttpBinding>> {
+pub fn extract_http_binding(method: &MethodDescriptorProto) -> CodegenResult<Option<HttpBinding>> {
     let Some(options) = method.options.as_option() else {
         return Ok(None);
     };
@@ -194,7 +192,7 @@ mod tests {
     use connectrpc_codegen::codegen::descriptor::{MethodDescriptorProto, MethodOptions};
 
     use super::{HTTP_EXTENSION_NUMBER, extract_http_binding};
-    use crate::ir::{HttpBody, HttpVerb};
+    use crate::internal::ir::{HttpBody, HttpVerb};
 
     #[test]
     fn extracts_http_extension_from_method_options_unknown_fields() {

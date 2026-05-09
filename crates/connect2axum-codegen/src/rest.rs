@@ -7,13 +7,13 @@ use syn::{Ident, Path, Type};
 use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
-use crate::guardrails::{ensure_unique_generated_identifiers, ensure_unique_routes};
-use crate::ir::{
+use crate::internal::guardrails::{ensure_unique_generated_identifiers, ensure_unique_routes};
+use crate::internal::ir::{
     CommentSet, DescriptorIr, Field, FieldKind, FieldLabel, HttpVerb, Method, ProtoFile, Service,
 };
-use crate::options::CodegenOptions;
-use crate::resolver::TypeResolver;
-use crate::shape::{
+use crate::internal::options::CodegenOptions;
+use crate::internal::resolver::TypeResolver;
+use crate::internal::shape::{
     FieldSource, FileShapes, GeneratedDto, RequestPartShape, RequestReconstruction, RequestShape,
     ShapeField, plan_file_shapes,
 };
@@ -21,7 +21,7 @@ use crate::shape::{
 const REST_MODULE_SUFFIX: &str = "_rest";
 const ROUTER_FUNCTION_NAME: &str = "make_router";
 
-pub(crate) fn generate_file(
+pub fn generate_file(
     ir: &DescriptorIr,
     file_name: &str,
     options: &CodegenOptions,

@@ -1,11 +1,11 @@
 use serde_json::{Map, Value, json};
 
-use crate::ir::{FieldKind, FieldLabel};
-use crate::shape::ShapeField;
+use crate::internal::ir::{FieldKind, FieldLabel};
+use crate::internal::shape::ShapeField;
 
 use super::comments::comment_description;
 
-pub(crate) fn generated_dto_schema(fields: &[ShapeField]) -> Value {
+pub fn generated_dto_schema(fields: &[ShapeField]) -> Value {
     let properties = fields
         .iter()
         .map(|field| {
@@ -22,7 +22,7 @@ pub(crate) fn generated_dto_schema(fields: &[ShapeField]) -> Value {
     })
 }
 
-pub(crate) fn field_schema(field: &ShapeField) -> Value {
+pub fn field_schema(field: &ShapeField) -> Value {
     let mut schema = if field.field.label == Some(FieldLabel::Repeated) {
         json!({
             "type": "array",
@@ -41,7 +41,7 @@ pub(crate) fn field_schema(field: &ShapeField) -> Value {
     schema
 }
 
-pub(crate) fn scalar_field_schema(kind: &FieldKind) -> Value {
+pub fn scalar_field_schema(kind: &FieldKind) -> Value {
     match kind {
         FieldKind::Double => json!({ "type": "number", "format": "double" }),
         FieldKind::Float => json!({ "type": "number", "format": "float" }),

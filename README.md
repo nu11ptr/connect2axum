@@ -1,8 +1,21 @@
-# connect2axum
+# connect2axum [![Crate](https://img.shields.io/crates/v/connect2axum)](https://crates.io/crates/connect2axum) [![Docs](https://docs.rs/connect2axum/badge.svg)](https://docs.rs/connect2axum) [![Build](https://github.com/nu11ptr/connect2axum/workflows/CI/badge.svg)](https://github.com/nu11ptr/connect2axum/actions) [![License](https://img.shields.io/crates/l/connect2axum)](https://github.com/nu11ptr/connect2axum/blob/main/LICENSE)
 
 Generate REST and/or WebSocket endpoint wrappers over ConnectRPC services.
 Additionally, generate OpenAPI docs for REST endpoints and AsyncAPI docs for
 WebSocket endpoints.
+
+## Install
+
+```sh
+cargo install --locked connect2axum-codegen
+```
+
+This installs:
+
+- `protoc-gen-connect2rest`
+- `protoc-gen-connect2ws`
+- `protoc-gen-connect2openapi`
+- `protoc-gen-connect2asyncapi`
 
 ## Plugin Options
 

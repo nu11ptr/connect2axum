@@ -1,30 +1,15 @@
 //! Protoc/Buf code generation for `connect2axum`.
 //!
 
-mod asyncapi;
 mod error;
-mod guardrails;
-mod http;
-mod ir;
-mod openapi;
-mod options;
-mod resolver;
-mod rest;
-mod shape;
-mod ws;
+pub(crate) mod internal;
+
+use crate::internal::ir::build_ir;
+use crate::internal::options::CodegenOptions;
+use crate::internal::{asyncapi, openapi, rest, ws};
 
 pub use connectrpc_codegen::plugin::{CodeGeneratorRequest, CodeGeneratorResponse};
 pub use error::{CodegenErrKind, CodegenResult};
-pub use ir::{
-    CommentSet, DescriptorIr, Field, FieldKind, FieldLabel, HttpBinding, HttpBody, HttpVerb,
-    Message, Method, ProtoFile, Service, build_ir,
-};
-pub use options::CodegenOptions;
-pub use resolver::{RustPath, TypeResolver};
-pub use shape::{
-    FieldAssignment, FieldSource, FileShapes, GeneratedDto, GeneratedDtoKind, RequestPartShape,
-    RequestReconstruction, RequestShape, ShapeField, plan_file_shapes,
-};
 
 /// Generate a REST protoc plugin response for a request.
 ///

@@ -3,9 +3,9 @@ use serde_json::{Map, Value, json};
 use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
-use crate::ir::{DescriptorIr, HttpVerb, ProtoFile};
-use crate::options::CodegenOptions;
-use crate::shape::{RequestPartShape, ShapeField, plan_file_shapes};
+use crate::internal::ir::{DescriptorIr, HttpVerb, ProtoFile};
+use crate::internal::options::CodegenOptions;
+use crate::internal::shape::{RequestPartShape, ShapeField, plan_file_shapes};
 
 use super::config::{DocConfig, HeaderConfig, InfoConfig};
 use super::model::validate_document;
@@ -17,7 +17,7 @@ const OPENAPI_JSON_CONTENT_TYPE: &str = "application/json";
 const CONNECT_ERROR_SCHEMA: &str = "connect2axum.ConnectError";
 const CONNECT_ERROR_RESPONSE: &str = "connect2axum.ConnectError";
 
-pub(crate) fn merge_openapi_documents(
+pub fn merge_openapi_documents(
     files: Vec<CodeGeneratorResponseFile>,
     ir: &DescriptorIr,
     streaming_content_type: &str,
@@ -115,11 +115,7 @@ fn parse_openapi_document(name: &str, content: &str) -> CodegenResult<Value> {
     }
 }
 
-pub(crate) fn merge_document(
-    target: &mut Value,
-    source: Value,
-    source_name: &str,
-) -> CodegenResult<()> {
+pub fn merge_document(target: &mut Value, source: Value, source_name: &str) -> CodegenResult<()> {
     if let Some(openapi) = source.get("openapi") {
         target["openapi"] = openapi.clone();
     }
@@ -279,7 +275,7 @@ fn merge_array_by_value(target: &mut Value, source: &Value, field: &str) {
     }
 }
 
-pub(crate) fn apply_config(document: &mut Value, config: &DocConfig) -> CodegenResult<()> {
+pub fn apply_config(document: &mut Value, config: &DocConfig) -> CodegenResult<()> {
     apply_info_config(document, &config.info);
 
     if !config.servers.is_empty() {
@@ -443,7 +439,7 @@ fn replace_request_body_schema(
     Ok(())
 }
 
-pub(crate) fn patch_streaming_operations(
+pub fn patch_streaming_operations(
     document: &mut Value,
     ir: &DescriptorIr,
     streaming_content_type: &str,
@@ -576,7 +572,7 @@ fn nested_object_mut<'a>(
     Ok(Some(current))
 }
 
-pub(crate) fn add_connect_error_response(document: &mut Value) -> CodegenResult<()> {
+pub fn add_connect_error_response(document: &mut Value) -> CodegenResult<()> {
     let components = ensure_object_at(document, "components");
     let schemas = ensure_nested_object(components, "schemas")?;
     schemas

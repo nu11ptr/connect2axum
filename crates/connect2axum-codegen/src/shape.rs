@@ -4,11 +4,11 @@ use flexstr::{SharedStr, ToOwnedFlexStr as _};
 use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
-use crate::ir::{
+use crate::internal::ir::{
     CommentSet, DescriptorIr, Field, FieldKind, HttpBinding, HttpBody, Message, Method, ProtoFile,
 };
-use crate::options::CodegenOptions;
-use crate::resolver::{RustPath, TypeResolver};
+use crate::internal::options::CodegenOptions;
+use crate::internal::resolver::{RustPath, TypeResolver};
 
 const GOOGLE_EMPTY: &str = "google.protobuf.Empty";
 
@@ -49,29 +49,6 @@ pub enum RequestPartShape {
         rust_type: RustPath,
         fields: Vec<ShapeField>,
     },
-}
-
-impl RequestPartShape {
-    pub fn description(&self) -> String {
-        match self {
-            Self::VerbatimRequest { rust_type } => format!("verbatim {}", rust_type.as_str()),
-            Self::ExistingMessage { field, rust_type } => {
-                format!("{} as {}", field.field.name.as_ref(), rust_type.as_str())
-            }
-            Self::GeneratedDto {
-                name,
-                rust_type,
-                fields,
-            } => {
-                let fields = fields
-                    .iter()
-                    .map(|field| field.field.name.as_ref())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{name} ({}) [{fields}]", rust_type.as_str())
-            }
-        }
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -581,9 +558,9 @@ mod tests {
 
     use super::{FieldSource, RequestPartShape, RequestReconstruction, plan_file_shapes};
     use crate::CodeGeneratorRequest;
-    use crate::http::HTTP_EXTENSION_NUMBER;
-    use crate::ir::build_ir;
-    use crate::options::CodegenOptions;
+    use crate::internal::http::HTTP_EXTENSION_NUMBER;
+    use crate::internal::ir::build_ir;
+    use crate::internal::options::CodegenOptions;
 
     #[test]
     fn partitions_test_request_like_the_old_http_parser() {

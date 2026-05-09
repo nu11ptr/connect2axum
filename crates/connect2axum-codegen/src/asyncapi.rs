@@ -7,20 +7,20 @@ use uni_error::UniError;
 
 use crate::CodeGeneratorRequest;
 use crate::error::{CodegenErrKind, CodegenResult};
-use crate::guardrails::ensure_unique_routes;
-use crate::ir::{DescriptorIr, Field, FieldKind, FieldLabel, Method, Service, build_ir};
-use crate::openapi::comments::comment_description;
-use crate::openapi::config::{DocConfig, InfoConfig};
-use crate::openapi::schema::scalar_field_schema;
-use crate::options::CodegenOptions;
-use crate::shape::{FileShapes, RequestShape, plan_file_shapes};
-use crate::ws::ws_route_path;
+use crate::internal::guardrails::ensure_unique_routes;
+use crate::internal::ir::{DescriptorIr, Field, FieldKind, FieldLabel, Method, Service, build_ir};
+use crate::internal::openapi::comments::comment_description;
+use crate::internal::openapi::config::{DocConfig, InfoConfig};
+use crate::internal::openapi::schema::scalar_field_schema;
+use crate::internal::options::CodegenOptions;
+use crate::internal::shape::{FileShapes, RequestShape, plan_file_shapes};
+use crate::internal::ws::ws_route_path;
 
 const DEFAULT_OUTPUT_FILE: &str = "asyncapi.json";
 const DEFAULT_CONTENT_TYPE: &str = "application/json";
 const ASYNCAPI_VERSION: &str = "3.1.0";
 
-pub(crate) fn generate(request: &CodeGeneratorRequest) -> CodegenResult<CodeGeneratorResponse> {
+pub fn generate(request: &CodeGeneratorRequest) -> CodegenResult<CodeGeneratorResponse> {
     let options = AsyncApiOptions::parse(request.parameter.as_deref())?;
     let config = options.load_config()?;
     let ir = build_ir(request)?;
@@ -620,7 +620,11 @@ impl SchemaRegistry {
         self.schemas.insert(full_name.to_owned(), schema);
     }
 
-    fn message_schema(&mut self, ir: &DescriptorIr, message: &crate::ir::Message) -> Value {
+    fn message_schema(
+        &mut self,
+        ir: &DescriptorIr,
+        message: &crate::internal::ir::Message,
+    ) -> Value {
         let mut schema = Map::new();
         schema.insert("type".to_owned(), Value::String("object".to_owned()));
         if let Some(description) = comment_description(&message.comments) {
@@ -765,11 +769,11 @@ mod tests {
     use serde_json::json;
 
     use super::{AsyncApiOptions, build_document};
-    use crate::ir::{
+    use crate::internal::ir::{
         CommentSet, DescriptorIr, Field, FieldKind, FieldLabel, HttpBinding, HttpBody, HttpVerb,
         Message, Method, ProtoFile, Service,
     };
-    use crate::openapi::config::{DocConfig, InfoConfig};
+    use crate::internal::openapi::config::{DocConfig, InfoConfig};
 
     #[test]
     fn parses_asyncapi_options() {

@@ -9,7 +9,7 @@ use uni_error::{ResultContext as _, UniError};
 
 use crate::CodeGeneratorRequest;
 use crate::error::{CodegenErrKind, CodegenResult};
-use crate::http;
+use crate::internal::http;
 
 const FILE_MESSAGE_TYPE_PATH: i32 = 4;
 const FILE_SERVICE_PATH: i32 = 6;
@@ -160,16 +160,6 @@ pub enum HttpBody {
     None,
     Wildcard,
     Field(SharedStr),
-}
-
-impl HttpBody {
-    pub fn description(&self) -> &str {
-        match self {
-            Self::None => "none",
-            Self::Wildcard => "*",
-            Self::Field(field) => field.as_ref(),
-        }
-    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -599,7 +589,7 @@ mod tests {
 
     use super::{HttpBody, HttpVerb, build_ir};
     use crate::CodeGeneratorRequest;
-    use crate::http::HTTP_EXTENSION_NUMBER;
+    use crate::internal::http::HTTP_EXTENSION_NUMBER;
 
     #[test]
     fn extracts_unary_post_with_path_fields_and_single_field_body() {

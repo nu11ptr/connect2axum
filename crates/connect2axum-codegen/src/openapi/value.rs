@@ -3,7 +3,7 @@ use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
 
-pub(crate) fn ensure_object_at<'a>(root: &'a mut Value, field: &str) -> &'a mut Map<String, Value> {
+pub fn ensure_object_at<'a>(root: &'a mut Value, field: &str) -> &'a mut Map<String, Value> {
     root.as_object_mut()
         .expect("OpenAPI document root should be an object")
         .entry(field.to_owned())
@@ -12,7 +12,7 @@ pub(crate) fn ensure_object_at<'a>(root: &'a mut Value, field: &str) -> &'a mut 
         .expect("OpenAPI root field should be an object")
 }
 
-pub(crate) fn ensure_nested_object<'a>(
+pub fn ensure_nested_object<'a>(
     root: &'a mut Map<String, Value>,
     field: &str,
 ) -> CodegenResult<&'a mut Map<String, Value>> {
@@ -27,10 +27,7 @@ pub(crate) fn ensure_nested_object<'a>(
         })
 }
 
-pub(crate) fn ensure_array_at<'a>(
-    root: &'a mut Value,
-    field: &str,
-) -> CodegenResult<&'a mut Vec<Value>> {
+pub fn ensure_array_at<'a>(root: &'a mut Value, field: &str) -> CodegenResult<&'a mut Vec<Value>> {
     root.as_object_mut()
         .expect("OpenAPI document root should be an object")
         .entry(field.to_owned())
@@ -44,7 +41,7 @@ pub(crate) fn ensure_array_at<'a>(
         })
 }
 
-pub(crate) fn merge_named_values(
+pub fn merge_named_values(
     target: &mut Map<String, Value>,
     source: &Map<String, Value>,
     context: &str,

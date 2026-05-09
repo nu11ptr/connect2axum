@@ -1,6 +1,6 @@
-use crate::ir::CommentSet;
+use crate::internal::ir::CommentSet;
 
-pub(crate) fn comment_description(comments: &CommentSet) -> Option<String> {
+pub fn comment_description(comments: &CommentSet) -> Option<String> {
     let lines = comments
         .leading_detached
         .iter()
