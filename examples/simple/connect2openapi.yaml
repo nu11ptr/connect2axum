@@ -1,0 +1,24 @@
+info:
+  title: Simple API
+  version: 0.1.0
+  description: Simple connect2axum example API.
+
+servers:
+  - url: http://127.0.0.1:8000/v1
+    description: Local REST server
+
+securitySchemes:
+  BearerAuth:
+    type: http
+    scheme: bearer
+    bearerFormat: JWT
+
+security:
+  - BearerAuth: []
+
+headers:
+  - name: X-Request-Id
+    required: false
+    description: Optional request correlation ID.
+    schema:
+      type: string

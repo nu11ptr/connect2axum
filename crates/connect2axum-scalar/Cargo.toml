@@ -1,0 +1,13 @@
+[package]
+name = "connect2axum-scalar"
+version = "0.1.0"
+description = "Embedded Scalar API reference routes for connect2axum examples"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+bytes.workspace = true
+http.workspace = true

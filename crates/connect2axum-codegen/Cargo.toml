@@ -19,6 +19,10 @@ path = "src/bin/protoc-gen-connect2rest.rs"
 name = "protoc-gen-connect2ws"
 path = "src/bin/protoc-gen-connect2ws.rs"
 
+[[bin]]
+name = "protoc-gen-connect2openapi"
+path = "src/bin/protoc-gen-connect2openapi.rs"
+
 [dependencies]
 buffa.workspace = true
 buffa-codegen.workspace = true
@@ -28,5 +32,8 @@ heck.workspace = true
 prettyplease.workspace = true
 proc-macro2.workspace = true
 quote.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+serde_yaml.workspace = true
 syn.workspace = true
 uni_error.workspace = true

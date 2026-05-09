@@ -15,7 +15,8 @@ Required local plugins:
 
 ```sh
 cargo install --locked protoc-gen-buffa protoc-gen-buffa-packaging connectrpc-codegen
-cargo install --path crates/connect2axum-codegen # installs protoc-gen-connect2rest
+go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv3@main
+cargo install --path crates/connect2axum-codegen # installs protoc-gen-connect2rest and protoc-gen-connect2openapi
 ```
 
 From the workspace root:
@@ -61,4 +62,11 @@ grpcurl \
   -d '{"salutation":"Ahoy","firstName":"Jane","lastName":"Doe"}' \
   127.0.0.1:8000 \
   hello.v1.GreeterService/SayHello
+```
+
+OpenAPI and Scalar:
+
+```sh
+curl -s http://127.0.0.1:8000/openapi.json | jq .
+open http://127.0.0.1:8000/scalar
 ```

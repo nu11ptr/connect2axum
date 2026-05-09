@@ -1,0 +1,154 @@
+{
+  "components": {
+    "responses": {
+      "connect2axum.ConnectError": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/connect2axum.ConnectError"
+            }
+          }
+        },
+        "description": "Connect error response."
+      }
+    },
+    "schemas": {
+      "connect2axum.ConnectError": {
+        "description": "Connect error response.",
+        "properties": {
+          "code": {
+            "description": "Connect error code.",
+            "type": "string"
+          },
+          "details": {
+            "description": "Optional typed error details.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "message": {
+            "description": "Developer-facing error message.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "hello.v1.HelloReply": {
+        "description": "The response message containing the greeting.",
+        "properties": {
+          "message": {
+            "description": "The message to greet with.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Simple connect2axum example API.",
+    "title": "Simple API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/hello/{first_name}": {
+      "post": {
+        "operationId": "GreeterService_SayHello",
+        "parameters": [
+          {
+            "description": "The first name of the person to greet.",
+            "in": "path",
+            "name": "first_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The salutation to use.",
+            "in": "query",
+            "name": "salutation",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional request correlation ID.",
+            "in": "header",
+            "name": "X-Request-Id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "lastName": {
+                    "description": "The last name of the person to greet.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/hello.v1.HelloReply"
+                }
+              }
+            },
+            "description": "The response message containing the greeting."
+          },
+          "default": {
+            "$ref": "#/components/responses/connect2axum.ConnectError"
+          }
+        },
+        "summary": "Sends a greeting.",
+        "tags": [
+          "GreeterService"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "servers": [
+    {
+      "description": "Local REST server",
+      "url": "http://127.0.0.1:8000/v1"
+    }
+  ],
+  "tags": [
+    {
+      "description": "The greeting service definition.",
+      "name": "GreeterService"
+    }
+  ]
+}

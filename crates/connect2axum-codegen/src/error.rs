@@ -8,6 +8,9 @@ pub enum CodegenErrKind {
     UnknownPluginOption,
     InvalidBooleanOption,
     InvalidServiceStateOption,
+    OpenApiPluginFailed,
+    OpenApiInvalidDocument,
+    OpenApiMergeConflict,
     FileToGenerateNotFound,
     InvalidDescriptor,
     InvalidHttpAnnotation,
@@ -29,6 +32,9 @@ impl UniKind for CodegenErrKind {
             Self::InvalidServiceStateOption => {
                 Some("invalid connect2axum service_state option".into())
             }
+            Self::OpenApiPluginFailed => Some("OpenAPI generator failed".into()),
+            Self::OpenApiInvalidDocument => Some("invalid OpenAPI document".into()),
+            Self::OpenApiMergeConflict => Some("OpenAPI documents could not be merged".into()),
             Self::FileToGenerateNotFound => {
                 Some("file_to_generate was not found in the descriptor set".into())
             }

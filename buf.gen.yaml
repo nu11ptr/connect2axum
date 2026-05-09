@@ -22,3 +22,8 @@ plugins:
     opt:
       - buffa_module=crate::proto
       - connect_module=crate::connect
+  - local: protoc-gen-connect2openapi
+    out: examples/simple/src/generated/openapi
+    strategy: all
+    opt:
+      - config=examples/simple/connect2openapi.yaml

@@ -18,6 +18,9 @@ features = ["json"]
 [dependencies.connect2axum]
 path = "../../crates/connect2axum"
 
+[dependencies.connect2axum-scalar]
+path = "../../crates/connect2axum-scalar"
+
 [dependencies.connectrpc]
 version = "0.4"
 default-features = false

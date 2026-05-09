@@ -20,6 +20,8 @@ use connect::hello::v1::GreeterServiceExt as _;
 use connect::hello::v1::OwnedHelloRequestView;
 use proto::hello::v1::HelloReply;
 
+const OPENAPI_JSON: &str = include_str!("generated/openapi/openapi.json");
+
 #[derive(Clone, Debug, Default)]
 pub struct Greeter;
 
@@ -46,6 +48,7 @@ pub fn app() -> Router {
 
     Router::new()
         .route("/health", get(|| async { "ok" }))
+        .merge(connect2axum_scalar::router(OPENAPI_JSON))
         .nest("/v1", rest)
         .fallback_service(connect.into_axum_service())
 }
@@ -104,5 +107,45 @@ mod tests {
             .expect("response body bytes");
         let json: serde_json::Value = serde_json::from_slice(&bytes).expect("json response");
         assert_eq!(json["message"], "Hello, Ahoy Jane Doe!");
+    }
+
+    #[tokio::test]
+    async fn scalar_routes_serve_openapi_docs() {
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/openapi.json")
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body bytes");
+        let json: serde_json::Value = serde_json::from_slice(&bytes).expect("json response");
+        assert_eq!(json["openapi"], "3.1.0");
+        assert_eq!(json["info"]["title"], "Simple API");
+
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/scalar")
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body bytes");
+        let html = std::str::from_utf8(&bytes).expect("html response");
+        assert!(html.contains(r#"data-url="/openapi.json""#));
     }
 }

@@ -5,6 +5,7 @@ mod error;
 mod guardrails;
 mod http;
 mod ir;
+mod openapi;
 mod options;
 mod resolver;
 mod rest;
@@ -90,6 +91,30 @@ pub fn try_generate_ws(request: &CodeGeneratorRequest) -> CodegenResult<CodeGene
         file: files,
         ..Default::default()
     })
+}
+
+/// Generate a merged OpenAPI v3.1 protoc plugin response for a request.
+///
+/// This delegates schema and comment harvesting to grpc-gateway's
+/// `protoc-gen-openapiv3`, then patches the result to match connect2axum REST
+/// behavior.
+#[must_use]
+pub fn generate_openapi(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
+    match try_generate_openapi(request) {
+        Ok(response) => response,
+        Err(err) => CodeGeneratorResponse {
+            error: Some(err.to_string()),
+            ..Default::default()
+        },
+    }
+}
+
+/// Generate a merged OpenAPI v3.1 protoc plugin response, returning typed
+/// project errors.
+pub fn try_generate_openapi(
+    request: &CodeGeneratorRequest,
+) -> CodegenResult<CodeGeneratorResponse> {
+    openapi::generate(request)
 }
 
 #[cfg(test)]
