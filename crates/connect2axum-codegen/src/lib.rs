@@ -18,7 +18,7 @@ pub use ir::{
     CommentSet, DescriptorIr, Field, FieldKind, FieldLabel, HttpBinding, HttpBody, HttpVerb,
     Message, Method, ProtoFile, Service, build_ir,
 };
-pub use options::{CodegenOptions, ServiceState};
+pub use options::CodegenOptions;
 pub use resolver::{RustPath, TypeResolver};
 pub use shape::{
     FieldAssignment, FieldSource, FileShapes, GeneratedDto, GeneratedDtoKind, RequestPartShape,

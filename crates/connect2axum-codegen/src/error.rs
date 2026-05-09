@@ -6,8 +6,6 @@ use uni_error::{Cause, UniKind};
 pub enum CodegenErrKind {
     InvalidPluginOption,
     UnknownPluginOption,
-    InvalidBooleanOption,
-    InvalidServiceStateOption,
     OpenApiPluginFailed,
     OpenApiInvalidDocument,
     OpenApiMergeConflict,
@@ -28,10 +26,6 @@ impl UniKind for CodegenErrKind {
         match self {
             Self::InvalidPluginOption => Some("invalid connect2axum plugin option".into()),
             Self::UnknownPluginOption => Some("unknown connect2axum plugin option".into()),
-            Self::InvalidBooleanOption => Some("invalid boolean connect2axum plugin option".into()),
-            Self::InvalidServiceStateOption => {
-                Some("invalid connect2axum service_state option".into())
-            }
             Self::OpenApiPluginFailed => Some("OpenAPI generator failed".into()),
             Self::OpenApiInvalidDocument => Some("invalid OpenAPI document".into()),
             Self::OpenApiMergeConflict => Some("OpenAPI documents could not be merged".into()),

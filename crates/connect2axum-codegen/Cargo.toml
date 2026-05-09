@@ -29,6 +29,7 @@ buffa-codegen.workspace = true
 connectrpc-codegen.workspace = true
 flexstr.workspace = true
 heck.workspace = true
+oas3.workspace = true
 prettyplease.workspace = true
 proc-macro2.workspace = true
 quote.workspace = true

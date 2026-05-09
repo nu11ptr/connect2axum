@@ -28,6 +28,7 @@ flexstr = { version = "0.11", features = ["std", "str"] }
 futures-util = "0.3"
 heck = "0.5"
 http = "1"
+oas3 = { version = "0.22", default-features = false }
 prettyplease = "0.2"
 proc-macro2 = "1"
 quote = "1"

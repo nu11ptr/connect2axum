@@ -153,26 +153,21 @@ Implementation:
   options:
   - `buffa_module=crate::proto`
   - `connect_module=crate::connect`
-  - `openapi=true|false`
   - `runtime_module=::connect2axum`
   - `streaming_content_type=application/x-ndjson`
   - `value_suffix=__`
   - `type_suffix=__`
   - `body_message_suffix=Body`
   - `query_message_suffix=Query`
-  - `service_state=package.Service:crate::MyService`
 - Default options:
   - `buffa_module=crate::proto`
   - `connect_module=crate::connect`
-  - `openapi=false`
   - `runtime_module=::connect2axum`
   - `streaming_content_type=application/x-ndjson`
   - `value_suffix=__`
   - `type_suffix=__`
   - `body_message_suffix=Body`
   - `query_message_suffix=Query`
-  - no explicit `service_state`; generated routers are generic over
-    `Arc<S>` where `S` implements the generated Connect service trait.
 - Reject unknown options with an error response instead of panic.
 - Define the Phase 2 placeholder output contract:
   - one generated `*.connect2axum.rs` file per `file_to_generate`,
@@ -563,9 +558,8 @@ OpenAPI generation into `connect2axum`.
 Implementation:
 
 - Do not add new OpenAPI generator behavior in this phase.
-- Keep existing parsed plugin options stable for now so earlier phases do not
-  churn, but treat `openapi=true` as inactive until the OpenAPI direction is
-  revisited.
+- Keep OpenAPI out of the REST/WS plugin options. OpenAPI should be revisited
+  as a separate generator rather than an inline REST generator mode.
 - Do not add Swagger UI to the examples.
 
 Review focus:
@@ -922,30 +916,37 @@ Context:
   That makes a shared core valuable, but not because OpenAPI can be
   mechanically transformed into AsyncAPI.
 
+Implemented decision:
+
+- Keep grpc-gateway's `protoc-gen-openapiv3` as the OpenAPI schema backend for
+  now. Rewriting the full proto-to-OpenAPI path in Rust would duplicate a lot
+  of already-working ProtoJSON/comment behavior before AsyncAPI has proven
+  which pieces need to be shared.
+- Put grpc-gateway behind `openapi::grpc_gateway` so the wrapper behavior is
+  isolated and replaceable later.
+- Use `oas3` as a typed OpenAPI v3.1 validation/navigation layer over the final
+  merged document. It helps catch malformed output without forcing every
+  extension-heavy patch through a typed builder API.
+- Keep document assembly mostly `serde_json::Value` based, because the current
+  work needs flexible OpenAPI extension handling and the future AsyncAPI
+  generator will not be a mechanical transformation of OpenAPI paths.
+
 Implementation:
 
-- Split `crates/connect2axum-codegen/src/openapi.rs` into smaller modules:
-  - `doc_config`: shared YAML config for `info`, `servers`, security schemes,
-    global security, headers, output file names, and content types;
-  - `doc_comments`: comment normalization for summaries/descriptions/tags;
-  - `doc_schema`: protobuf descriptor to JSON Schema-ish component generation;
-  - `doc_components`: schema/security/response/message component registry,
-    stable component names, conflict checks, and `$ref` helpers;
-  - `doc_routes`: normalized operation catalog derived from existing IR,
-    `google.api.http` bindings, `plan_file_shapes`, and WebSocket route
-    planning;
-  - `openapi`: OpenAPI-specific document assembly;
-  - `openapi_grpc_gateway`: optional grpc-gateway delegation backend, if kept;
-  - `asyncapi`: reserved module boundary for Phase 15.
-- Introduce a neutral intermediate model that is not OpenAPI or AsyncAPI:
-  - API metadata from config;
-  - service tags and method summaries/descriptions from proto comments;
-  - message schemas keyed by protobuf FQN;
-  - REST operations with verb/path, parameters, request body schema, response
-    schema, content types, and streaming flags;
-  - WebSocket operations with route path, streaming shape, inbound message
-    schema, outbound message schema, and protocol framing metadata;
-  - shared components for security and reusable errors.
+- Split `crates/connect2axum-codegen/src/openapi/` into smaller modules:
+  - `config`: shared YAML config for `info`, `servers`, security schemes,
+    global security, headers, and content types;
+  - `comments`: comment normalization for summaries/descriptions/tags;
+  - `schema`: schema snippets for connect2axum generated REST DTOs;
+  - `value`: common JSON object/array merge helpers;
+  - `mod`: the `protoc-gen-connect2openapi` coordinator;
+  - `document`: OpenAPI merge/config/body/streaming/error patching;
+  - `grpc_gateway`: grpc-gateway delegation backend;
+  - `model`: `oas3` validation and future typed OpenAPI navigation.
+- Defer a full neutral operation/schema model until Phase 15. The current
+  OpenAPI backend already supplies the bulk proto schema work, while AsyncAPI
+  will need a WebSocket-oriented catalog that is not shaped like OpenAPI path
+  items.
 - Move the OpenAPI config behavior into the shared core:
   - `info`;
   - `servers`;
@@ -954,40 +955,15 @@ Implementation:
   - reusable header parameters;
   - Connect error response shape;
   - `streaming_content_type`.
-- Build a native schema generator for the protobuf surface connect2axum already
-  supports:
-  - scalar protobuf types;
-  - repeated fields;
-  - maps, if already surfaced by Buffa descriptors and needed by examples;
-  - enums as string schemas first, with enum values later if practical;
-  - messages and nested messages;
-  - `google.protobuf.Empty`;
-  - well-known timestamp/duration/field-mask/value/struct/list-value/null-value
-    only if fixtures prove we need them now;
-  - ProtoJSON 64-bit integer string behavior;
-  - bytes as base64 strings;
-  - field JSON names and proto-name aliases where documentation can express
-    them;
-  - comment descriptions on messages and fields.
-- Add a focused equivalence harness against grpc-gateway output:
-  - run `protoc-gen-openapiv3` in tests only when available;
-  - compare generated schemas/comments for representative fixtures;
-  - keep snapshots small and semantic, not byte-for-byte full document
-    equality;
-  - include the simple example, REST path/query/body split, streaming REST, and
-    any well-known types we decide to support.
-- Decide the OpenAPI backend at the end of this phase:
-  - Preferred outcome: switch `protoc-gen-connect2openapi` to native generation
-    from the shared core if fixture parity is good enough for the project's
-    supported HTTP subset.
-  - Fallback outcome: keep grpc-gateway as the OpenAPI schema backend behind a
-    trait, but move merge/config/streaming/body-shape patches into shared code
-    and keep AsyncAPI native.
-  - Avoid keeping the current all-in-one wrapper shape either way.
+- Preserve the existing native schema code only where connect2axum generates
+  REST DTOs that grpc-gateway cannot see directly.
+- Keep the equivalence burden low in this phase because grpc-gateway remains
+  the schema backend. Add focused tests around merge conflicts, config/header
+  patching, streaming content type patching, Connect error responses, and final
+  `oas3` parsing.
 - Evaluate but do not overcommit to model crates:
-  - `oas3` is MIT licensed and targets OpenAPI v3.1.x parsing/navigation; it is
-    a candidate if it reduces raw JSON object manipulation without fighting
-    OpenAPI extensions.
+  - `oas3` is MIT licensed and targets OpenAPI v3.1.x parsing/navigation; use
+    it for validation/navigation, not as the primary document builder.
   - `openapiv3` is MIT/Apache but targets OpenAPI v3.0.x, so it is not a good
     fit for a v3.1-first generator.
   - `asyncapi-rust-models` is MIT/Apache and models AsyncAPI 3.0; it is worth a
@@ -1002,7 +978,8 @@ Implementation:
 - Add or update docs:
   - document `protoc-gen-connect2openapi` options;
   - document the OpenAPI config file;
-  - record whether OpenAPI is native or delegated after the phase decision.
+  - record that OpenAPI remains delegated to grpc-gateway after the phase
+    decision.
 
 Review focus:
 

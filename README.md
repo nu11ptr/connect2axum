@@ -1,6 +1,6 @@
 # connect2axum
 
-Generate REST/OpenAPI endpoint wrappers over ConnectRPC services.
+Generate REST and/or Websockets endpoint wrappers over ConnectRPC services. Additionally, generate OpenAPI docs for these new endpoints.
 
 ## Plugin Options
 
@@ -18,6 +18,11 @@ plugins:
     opt:
       - buffa_module=crate::proto
       - connect_module=crate::connect
+  - local: protoc-gen-connect2openapi
+    out: src/generated/openapi
+    strategy: all
+    opt:
+      - config=connect2openapi.yaml
 ```
 
 ### Active Options
@@ -33,15 +38,15 @@ plugins:
 | `body_message_suffix` | `Body` | REST | Suffix for generated body DTOs. |
 | `query_message_suffix` | `Query` | REST | Suffix for generated query DTOs. |
 
-### Parsed But Reserved
+### OpenAPI Generator
 
-These options are accepted by the parser but are not active behavior in the
-current generators:
+`protoc-gen-connect2openapi` wraps grpc-gateway's
+`protoc-gen-openapiv3`, then patches the generated document for connect2axum
+REST behavior. It supports `output`, `config`, `openapiv3_bin`,
+`openapiv3_opt`, and `streaming_content_type` plugin options.
 
-| Option | Default | Notes |
-| --- | --- | --- |
-| `openapi` | `false` | OpenAPI generation was deferred out of this project for now. |
-| `service_state` | none | Parsed as `service.fqn:RustType`; current routers use `Arc<S>` state. |
+See [docs/openapi-generator.md](docs/openapi-generator.md) for config format
+and backend details.
 
 ### WebSocket Notes
 
