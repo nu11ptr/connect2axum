@@ -898,6 +898,226 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 ```
 
+## Phase 14: Shared API Document Core And OpenAPI Re-evaluation
+
+Goal: reduce the OpenAPI generator from a large postprocessor into a small
+adapter over a shared documentation core that can also feed AsyncAPI. This
+phase explicitly re-evaluates whether wrapping grpc-gateway's
+`protoc-gen-openapiv3` remains the right OpenAPI backend once AsyncAPI is in
+scope.
+
+Context:
+
+- The current `protoc-gen-connect2openapi` wrapper is useful but large. It
+  shells out to grpc-gateway, injects synthetic Go package names, merges output
+  files, applies shared config, rewrites REST body DTO schemas, patches NDJSON
+  streaming content types, and adds Connect-style errors.
+- grpc-gateway's OpenAPI v3 generator is HTTP/OpenAPI-specific. It is an
+  excellent reference for ProtoJSON schema decisions and comment harvesting, but
+  its output is not a natural base for AsyncAPI because AsyncAPI describes
+  channels, operations, messages, and protocol bindings rather than HTTP
+  path-items.
+- AsyncAPI does reuse familiar OpenAPI ideas: metadata, servers, security
+  schemes, reusable components, tags, `$ref`, and JSON Schema-shaped payloads.
+  That makes a shared core valuable, but not because OpenAPI can be
+  mechanically transformed into AsyncAPI.
+
+Implementation:
+
+- Split `crates/connect2axum-codegen/src/openapi.rs` into smaller modules:
+  - `doc_config`: shared YAML config for `info`, `servers`, security schemes,
+    global security, headers, output file names, and content types;
+  - `doc_comments`: comment normalization for summaries/descriptions/tags;
+  - `doc_schema`: protobuf descriptor to JSON Schema-ish component generation;
+  - `doc_components`: schema/security/response/message component registry,
+    stable component names, conflict checks, and `$ref` helpers;
+  - `doc_routes`: normalized operation catalog derived from existing IR,
+    `google.api.http` bindings, `plan_file_shapes`, and WebSocket route
+    planning;
+  - `openapi`: OpenAPI-specific document assembly;
+  - `openapi_grpc_gateway`: optional grpc-gateway delegation backend, if kept;
+  - `asyncapi`: reserved module boundary for Phase 15.
+- Introduce a neutral intermediate model that is not OpenAPI or AsyncAPI:
+  - API metadata from config;
+  - service tags and method summaries/descriptions from proto comments;
+  - message schemas keyed by protobuf FQN;
+  - REST operations with verb/path, parameters, request body schema, response
+    schema, content types, and streaming flags;
+  - WebSocket operations with route path, streaming shape, inbound message
+    schema, outbound message schema, and protocol framing metadata;
+  - shared components for security and reusable errors.
+- Move the OpenAPI config behavior into the shared core:
+  - `info`;
+  - `servers`;
+  - `securitySchemes`;
+  - root `security`;
+  - reusable header parameters;
+  - Connect error response shape;
+  - `streaming_content_type`.
+- Build a native schema generator for the protobuf surface connect2axum already
+  supports:
+  - scalar protobuf types;
+  - repeated fields;
+  - maps, if already surfaced by Buffa descriptors and needed by examples;
+  - enums as string schemas first, with enum values later if practical;
+  - messages and nested messages;
+  - `google.protobuf.Empty`;
+  - well-known timestamp/duration/field-mask/value/struct/list-value/null-value
+    only if fixtures prove we need them now;
+  - ProtoJSON 64-bit integer string behavior;
+  - bytes as base64 strings;
+  - field JSON names and proto-name aliases where documentation can express
+    them;
+  - comment descriptions on messages and fields.
+- Add a focused equivalence harness against grpc-gateway output:
+  - run `protoc-gen-openapiv3` in tests only when available;
+  - compare generated schemas/comments for representative fixtures;
+  - keep snapshots small and semantic, not byte-for-byte full document
+    equality;
+  - include the simple example, REST path/query/body split, streaming REST, and
+    any well-known types we decide to support.
+- Decide the OpenAPI backend at the end of this phase:
+  - Preferred outcome: switch `protoc-gen-connect2openapi` to native generation
+    from the shared core if fixture parity is good enough for the project's
+    supported HTTP subset.
+  - Fallback outcome: keep grpc-gateway as the OpenAPI schema backend behind a
+    trait, but move merge/config/streaming/body-shape patches into shared code
+    and keep AsyncAPI native.
+  - Avoid keeping the current all-in-one wrapper shape either way.
+- Evaluate but do not overcommit to model crates:
+  - `oas3` is MIT licensed and targets OpenAPI v3.1.x parsing/navigation; it is
+    a candidate if it reduces raw JSON object manipulation without fighting
+    OpenAPI extensions.
+  - `openapiv3` is MIT/Apache but targets OpenAPI v3.0.x, so it is not a good
+    fit for a v3.1-first generator.
+  - `asyncapi-rust-models` is MIT/Apache and models AsyncAPI 3.0; it is worth a
+    spike, but AsyncAPI 3.1 is current, so using `serde_json::Value` plus small
+    local structs may be less risky.
+  - `asyncapi` is MIT/Apache but appears to model an older AsyncAPI shape
+    without the 3.x `operations` object, so it should not be the primary target
+    unless that changes.
+  - Avoid compile-time/derive-first tooling such as `utoipa`-style generators;
+    our source of truth is protobuf descriptors, not Rust handler code.
+- Keep the simple example generated OpenAPI checked in.
+- Add or update docs:
+  - document `protoc-gen-connect2openapi` options;
+  - document the OpenAPI config file;
+  - record whether OpenAPI is native or delegated after the phase decision.
+
+Review focus:
+
+- The OpenAPI path should become smaller and easier to reason about, even if
+  it still delegates schema generation to grpc-gateway internally.
+- The shared schema/config/component code should be obviously reusable by
+  AsyncAPI.
+- We should not silently lose ProtoJSON-compatible schema behavior that
+  grpc-gateway already handled correctly.
+- The end state must be practical, not ideologically pure: native generation is
+  only better if it is smaller and covers the supported connect2axum surface
+  with confidence.
+
+Phase gate:
+
+```sh
+buf lint
+buf generate
+git diff --exit-code
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+```
+
+## Phase 15: AsyncAPI Generator For WebSocket Routes
+
+Goal: add `protoc-gen-connect2asyncapi` for generated JSON WebSocket routes,
+using the shared API document core from Phase 14 rather than trying to derive
+AsyncAPI from OpenAPI output.
+
+Implementation:
+
+- Add a new codegen binary:
+  - binary name: `protoc-gen-connect2asyncapi`;
+  - default output file: `asyncapi.json`;
+  - plugin options mirror OpenAPI where practical:
+    - `config=connect2api.yaml` or `config=connect2asyncapi.yaml`;
+    - `output=asyncapi.json`;
+    - `server_url=...` only if we decide to support simple inline config;
+    - `streaming_content_type` is not relevant for WebSocket frames, but a
+      `default_content_type=application/json` option is.
+- Reuse Phase 14 shared inputs:
+  - descriptor IR;
+  - comment normalization;
+  - protobuf schema registry;
+  - service/method tags;
+  - WebSocket route planner;
+  - security config;
+  - stable component naming.
+- Generate AsyncAPI 3.x documents for the WebSocket generator's actual route
+  behavior:
+  - `asyncapi`;
+  - `info`;
+  - `servers` with `protocol: ws` or `wss`;
+  - `defaultContentType: application/json`;
+  - `channels` keyed by generated WebSocket route path;
+  - `operations` keyed by stable service/method/action identifiers;
+  - `components.messages` for input and output messages;
+  - `components.schemas` for protobuf message payload schemas;
+  - `components.securitySchemes` from shared config;
+  - tags from service comments.
+- Model WebSocket direction carefully:
+  - server-streaming RPC: client sends one request message, server sends many
+    response messages;
+  - client-streaming RPC: client sends many request messages, server sends one
+    response message after the empty-frame end marker;
+  - bidi-streaming RPC: client sends many request messages and server sends
+    many response messages;
+  - unary RPCs are skipped because `connect2ws` does not generate unary
+    WebSocket routes.
+- Represent the end-of-client-stream marker explicitly:
+  - add an `x-connect2axum-end-of-stream` extension documenting the empty text
+    frame convention;
+  - do not pretend this is part of the protobuf message schema.
+- Preserve current WebSocket route support rules:
+  - client/bidi methods with path or query bindings remain codegen errors in
+    `connect2ws`;
+  - server-streaming methods with path/query bindings are skipped by
+    `connect2ws`, so they should also be skipped by `connect2asyncapi` with a
+    warning;
+  - AsyncAPI describes only routes generated by `connect2ws`.
+- Add a generated AsyncAPI document to `examples/ws-streaming`, checked in next
+  to the generated REST/WS code.
+- Add tests for:
+  - server/client/bidi WebSocket operations appear in AsyncAPI;
+  - unary methods do not appear;
+  - request and response messages reference shared schemas;
+  - service/method comments appear as tags, summaries, and descriptions;
+  - configured security schemes appear;
+  - skipped server-streaming path/query routes do not appear;
+  - generated `asyncapi.json` is valid JSON and stable across `buf generate`.
+- Consider adding a Scalar-like docs route only if it is useful in practice.
+  Scalar is primarily an OpenAPI viewer; AsyncAPI's own tooling may be a better
+  fit later, and this phase should stay focused on producing the spec.
+
+Review focus:
+
+- AsyncAPI should document the WebSocket protocol we actually generate, not a
+  theoretical websocketized REST API.
+- The generator should be small because schema/config/comment machinery was
+  already paid for in Phase 14.
+- Any AsyncAPI limitations should be represented as explicit extensions or
+  docs, not hidden assumptions.
+
+Phase gate:
+
+```sh
+buf lint
+buf generate
+git diff --exit-code
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+```
+
 ## Explicit Non-Goals For V1
 
 - No Tonic compatibility layer.
@@ -935,3 +1155,11 @@ cargo test --workspace --all-features
   <https://buf.build/docs/generate/>
 - Buf `buf.gen.yaml` v2 docs:
   <https://buf.build/docs/configuration/v2/buf-gen-yaml/>
+- gRPC-Gateway OpenAPI v3 generator docs:
+  <https://grpc-ecosystem.github.io/grpc-gateway/docs/mapping/openapi_v3/>
+- AsyncAPI v3.1 specification:
+  <https://www.asyncapi.com/docs/reference/specification/v3.1.0>
+- `oas3` Rust crate:
+  <https://docs.rs/oas3>
+- `asyncapi-rust-models` Rust crate:
+  <https://docs.rs/asyncapi-rust-models>
