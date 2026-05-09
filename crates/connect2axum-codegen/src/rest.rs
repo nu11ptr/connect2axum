@@ -7,6 +7,7 @@ use syn::{Ident, Path, Type};
 use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
+use crate::guardrails::{ensure_unique_generated_identifiers, ensure_unique_routes};
 use crate::ir::{
     CommentSet, DescriptorIr, Field, FieldKind, FieldLabel, HttpVerb, Method, ProtoFile, Service,
 };
@@ -75,6 +76,8 @@ impl<'a> RustGenerator<'a> {
     }
 
     fn generate(&self) -> CodegenResult<String> {
+        self.validate_file()?;
+
         let modules = self
             .proto_file
             .services
@@ -95,6 +98,8 @@ impl<'a> RustGenerator<'a> {
     }
 
     fn service_module(&self, service: &Service) -> CodegenResult<TokenStream> {
+        self.validate_service(service)?;
+
         let module_ident = parse_ident(
             &service_module_name(service.name.as_ref()),
             "generated REST module",
@@ -346,6 +351,82 @@ impl<'a> RustGenerator<'a> {
                 )
             })
     }
+
+    fn validate_file(&self) -> CodegenResult<()> {
+        let scope = format!("REST file {}", self.proto_file.name.as_ref());
+        ensure_unique_generated_identifiers(
+            &scope,
+            self.proto_file
+                .services
+                .iter()
+                .filter(|service| service.has_http_bindings())
+                .map(|service| {
+                    (
+                        service_module_name(service.name.as_ref()),
+                        format!("service {}", service.full_name.as_ref()),
+                    )
+                }),
+        )?;
+        ensure_unique_generated_identifiers(
+            &scope,
+            self.shapes.generated_dtos.iter().map(|dto| {
+                (
+                    dto.name.as_ref().to_owned(),
+                    format!(
+                        "generated {:?} DTO for {}",
+                        dto.kind,
+                        dto.source_message.as_ref()
+                    ),
+                )
+            }),
+        )
+    }
+
+    fn validate_service(&self, service: &Service) -> CodegenResult<()> {
+        let scope = format!("REST service {}", service.full_name.as_ref());
+        let methods = service
+            .methods
+            .iter()
+            .filter(|method| method.http.is_some())
+            .collect::<Vec<_>>();
+
+        ensure_unique_generated_identifiers(
+            &scope,
+            methods.iter().map(|method| {
+                (
+                    self.resolver
+                        .method_fn_name(method.name.as_ref())
+                        .as_ref()
+                        .to_owned(),
+                    format!("method {}", method.full_name.as_ref()),
+                )
+            }),
+        )?;
+        ensure_unique_routes(
+            &scope,
+            methods
+                .iter()
+                .map(|method| {
+                    rest_route_key(method)
+                        .map(|key| (key, format!("method {}", method.full_name.as_ref())))
+                })
+                .collect::<CodegenResult<Vec<_>>>()?,
+        )
+    }
+}
+
+fn rest_route_key(method: &Method) -> CodegenResult<String> {
+    let binding = method.http.as_ref().ok_or_else(|| {
+        UniError::from_kind_context(
+            CodegenErrKind::InvalidDescriptor,
+            format!("method {} has no HTTP binding", method.full_name.as_ref()),
+        )
+    })?;
+    Ok(format!(
+        "{} {}",
+        binding.verb.as_str(),
+        binding.path.as_ref()
+    ))
 }
 
 fn dto_tokens(dto: &GeneratedDto) -> CodegenResult<TokenStream> {
@@ -874,6 +955,117 @@ pub mod test_service_rest {
         assert!(content.contains(".route(\"/test:bidi-stream\""));
     }
 
+    #[test]
+    fn rejects_duplicate_rest_routes() {
+        let mut file = test_file();
+        file.service[0].method.push(method(
+            "PatchAgain",
+            ".test.v1.TestRequest",
+            http_rule(6, "/test", Some("*")),
+        ));
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test/v1/test.proto".into()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let err = try_generate_rest(&request).unwrap_err();
+
+        assert!(err.to_string().contains("duplicate route"));
+        assert!(err.to_string().contains("PATCH /test"));
+    }
+
+    #[test]
+    fn rejects_duplicate_rest_handler_idents() {
+        let mut file = test_file();
+        file.service[0].method.push(method(
+            "Get_One",
+            ".test.v1.TestRequest",
+            http_rule(2, "/test-again/{data}", None),
+        ));
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test/v1/test.proto".into()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let err = try_generate_rest(&request).unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("duplicate generated Rust identifier")
+        );
+        assert!(err.to_string().contains("get_one"));
+    }
+
+    #[test]
+    fn generates_modules_for_multiple_services_in_one_file() {
+        let mut file = test_file();
+        file.service.push(ServiceDescriptorProto {
+            name: Some("OtherService".into()),
+            method: vec![method(
+                "Ping",
+                ".test.v1.EmptyRequest",
+                http_rule(2, "/other/ping", None),
+            )],
+            ..Default::default()
+        });
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test/v1/test.proto".into()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+        let response = try_generate_rest(&request).unwrap();
+        let content = response.file[0].content.as_deref().unwrap();
+
+        assert!(content.contains("pub mod test_service_rest"));
+        assert!(content.contains("pub mod other_service_rest"));
+    }
+
+    #[test]
+    fn resolves_cross_package_inputs_and_outputs() {
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["api/v1/api.proto".into()],
+            proto_file: vec![model_file(), cross_package_service_file()],
+            ..Default::default()
+        };
+        let response = try_generate_rest(&request).unwrap();
+        let content = response.file[0].content.as_deref().unwrap();
+
+        assert!(content.contains("crate::proto::model::v1::SharedRequest"));
+        assert!(content.contains("crate::proto::model::v1::__buffa::view::SharedRequestView"));
+        assert!(content.contains("crate::proto::model::v1::SharedResponse"));
+    }
+
+    #[test]
+    fn resolves_same_package_types_split_across_files() {
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["split/v1/service.proto".into()],
+            proto_file: vec![split_messages_file(), split_service_file()],
+            ..Default::default()
+        };
+        let response = try_generate_rest(&request).unwrap();
+        let content = response.file[0].content.as_deref().unwrap();
+
+        assert!(content.contains("crate::proto::split::v1::SplitRequest"));
+        assert!(content.contains("crate::proto::split::v1::__buffa::view::SplitRequestView"));
+        assert!(content.contains("crate::proto::split::v1::SplitResponse"));
+    }
+
+    #[test]
+    fn resolves_google_protobuf_empty() {
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test/v1/empty.proto".into()],
+            proto_file: vec![google_empty_file(), empty_service_file()],
+            ..Default::default()
+        };
+        let response = try_generate_rest(&request).unwrap();
+        let content = response.file[0].content.as_deref().unwrap();
+
+        assert!(content.contains("::buffa_types::google::protobuf::Empty"));
+        assert!(content.contains("::buffa_types::google::protobuf::__buffa::view::EmptyView"));
+    }
+
     fn generated_content() -> String {
         let request = request();
         let response = try_generate_rest(&request).unwrap();
@@ -1038,6 +1230,127 @@ pub mod test_service_rest {
             client_streaming: Some(client_streaming),
             server_streaming: Some(server_streaming),
             options,
+            ..Default::default()
+        }
+    }
+
+    fn method_with_output(
+        name: &str,
+        input_type: &str,
+        output_type: &str,
+        options: MessageField<MethodOptions>,
+    ) -> MethodDescriptorProto {
+        MethodDescriptorProto {
+            name: Some(name.into()),
+            input_type: Some(input_type.into()),
+            output_type: Some(output_type.into()),
+            options,
+            ..Default::default()
+        }
+    }
+
+    fn model_file() -> FileDescriptorProto {
+        FileDescriptorProto {
+            name: Some("model/v1/model.proto".into()),
+            package: Some("model.v1".into()),
+            message_type: vec![
+                DescriptorProto {
+                    name: Some("SharedRequest".into()),
+                    field: vec![field("name", 1, Type::TYPE_STRING, None)],
+                    ..Default::default()
+                },
+                DescriptorProto {
+                    name: Some("SharedResponse".into()),
+                    field: vec![field("message", 1, Type::TYPE_STRING, None)],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn cross_package_service_file() -> FileDescriptorProto {
+        FileDescriptorProto {
+            name: Some("api/v1/api.proto".into()),
+            package: Some("api.v1".into()),
+            service: vec![ServiceDescriptorProto {
+                name: Some("ApiService".into()),
+                method: vec![method_with_output(
+                    "Share",
+                    ".model.v1.SharedRequest",
+                    ".model.v1.SharedResponse",
+                    http_rule(4, "/share", Some("*")),
+                )],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn split_messages_file() -> FileDescriptorProto {
+        FileDescriptorProto {
+            name: Some("split/v1/messages.proto".into()),
+            package: Some("split.v1".into()),
+            message_type: vec![
+                DescriptorProto {
+                    name: Some("SplitRequest".into()),
+                    field: vec![field("name", 1, Type::TYPE_STRING, None)],
+                    ..Default::default()
+                },
+                DescriptorProto {
+                    name: Some("SplitResponse".into()),
+                    field: vec![field("message", 1, Type::TYPE_STRING, None)],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn split_service_file() -> FileDescriptorProto {
+        FileDescriptorProto {
+            name: Some("split/v1/service.proto".into()),
+            package: Some("split.v1".into()),
+            service: vec![ServiceDescriptorProto {
+                name: Some("SplitService".into()),
+                method: vec![method_with_output(
+                    "Send",
+                    ".split.v1.SplitRequest",
+                    ".split.v1.SplitResponse",
+                    http_rule(4, "/split/send", Some("*")),
+                )],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn google_empty_file() -> FileDescriptorProto {
+        FileDescriptorProto {
+            name: Some("google/protobuf/empty.proto".into()),
+            package: Some("google.protobuf".into()),
+            message_type: vec![DescriptorProto {
+                name: Some("Empty".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn empty_service_file() -> FileDescriptorProto {
+        FileDescriptorProto {
+            name: Some("test/v1/empty.proto".into()),
+            package: Some("test.v1".into()),
+            service: vec![ServiceDescriptorProto {
+                name: Some("EmptyService".into()),
+                method: vec![method_with_output(
+                    "Ping",
+                    ".google.protobuf.Empty",
+                    ".google.protobuf.Empty",
+                    http_rule(2, "/empty/ping", None),
+                )],
+                ..Default::default()
+            }],
             ..Default::default()
         }
     }

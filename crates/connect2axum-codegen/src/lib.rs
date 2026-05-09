@@ -2,6 +2,7 @@
 //!
 
 mod error;
+mod guardrails;
 mod http;
 mod ir;
 mod options;

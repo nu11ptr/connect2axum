@@ -7,6 +7,7 @@ use syn::{Ident, Path, Type};
 use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
+use crate::guardrails::{ensure_unique_generated_identifiers, ensure_unique_routes};
 use crate::ir::{CommentSet, DescriptorIr, Method, ProtoFile, Service};
 use crate::options::CodegenOptions;
 use crate::resolver::TypeResolver;
@@ -71,6 +72,8 @@ impl<'a> RustGenerator<'a> {
     }
 
     fn generate(&self) -> CodegenResult<Option<String>> {
+        self.validate_file()?;
+
         let modules = self
             .proto_file
             .services
@@ -102,6 +105,7 @@ impl<'a> RustGenerator<'a> {
         if ws_methods.is_empty() {
             return Ok(None);
         }
+        self.validate_service(service, &ws_methods)?;
 
         let module_ident = parse_ident(
             &service_module_name(service.name.as_ref()),
@@ -366,6 +370,56 @@ impl<'a> RustGenerator<'a> {
                 )
             })
     }
+
+    fn validate_file(&self) -> CodegenResult<()> {
+        let scope = format!("WebSocket file {}", self.proto_file.name.as_ref());
+        ensure_unique_generated_identifiers(
+            &scope,
+            self.proto_file
+                .services
+                .iter()
+                .filter(|service| {
+                    service.methods.iter().any(|method| {
+                        method.http.is_some() && WsMethodKind::from_method(method).is_some()
+                    })
+                })
+                .map(|service| {
+                    (
+                        service_module_name(service.name.as_ref()),
+                        format!("service {}", service.full_name.as_ref()),
+                    )
+                }),
+        )
+    }
+
+    fn validate_service(
+        &self,
+        service: &Service,
+        ws_methods: &[WsMethod<'_>],
+    ) -> CodegenResult<()> {
+        let scope = format!("WebSocket service {}", service.full_name.as_ref());
+        ensure_unique_generated_identifiers(
+            &scope,
+            ws_methods.iter().map(|ws_method| {
+                (
+                    self.resolver
+                        .method_fn_name(ws_method.method.name.as_ref())
+                        .as_ref()
+                        .to_owned(),
+                    format!("method {}", ws_method.method.full_name.as_ref()),
+                )
+            }),
+        )?;
+        ensure_unique_routes(
+            &scope,
+            ws_methods.iter().map(|ws_method| {
+                (
+                    ws_method.route_path.clone(),
+                    format!("method {}", ws_method.method.full_name.as_ref()),
+                )
+            }),
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -527,6 +581,51 @@ mod tests {
         let response = try_generate_ws(&request).unwrap();
 
         assert!(response.file.is_empty());
+    }
+
+    #[test]
+    fn rejects_duplicate_websocket_routes() {
+        let mut file = streaming_test_file();
+        file.service[0].method.push(streaming_method(
+            "ServerStreamAgain",
+            http_rule(4, "/test:server-stream", Some("*")),
+            false,
+            true,
+        ));
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test/v1/streaming.proto".into()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let err = try_generate_ws(&request).unwrap_err();
+
+        assert!(err.to_string().contains("duplicate route"));
+        assert!(err.to_string().contains("/test:server-stream/ws"));
+    }
+
+    #[test]
+    fn rejects_duplicate_websocket_handler_idents() {
+        let mut file = streaming_test_file();
+        file.service[0].method.push(streaming_method(
+            "Bidi_Stream",
+            http_rule(4, "/test:bidi-stream-again", Some("*")),
+            true,
+            true,
+        ));
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test/v1/streaming.proto".into()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let err = try_generate_ws(&request).unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("duplicate generated Rust identifier")
+        );
+        assert!(err.to_string().contains("bidi_stream"));
     }
 
     fn streaming_request() -> CodeGeneratorRequest {

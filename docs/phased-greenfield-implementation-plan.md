@@ -856,87 +856,36 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 ```
 
-## Phase 13: Compatibility Hardening
+## Phase 13: Generator Guardrails
 
-Goal: cover the non-happy-path proto/codegen cases that usually make generator
-crates painful to adopt.
-
-Implementation:
-
-- Add validation and tests for:
-  - duplicate generated Rust identifiers,
-  - duplicate routes,
-  - unsupported HTTP custom verbs,
-  - unsupported complex path templates,
-  - missing `buffa_module`/`connect_module` coverage,
-  - name collisions between generated DTOs and Buffa messages,
-  - services with no REST bindings,
-  - multiple services in one proto file,
-  - same package split across multiple proto files,
-  - cross-package inputs/outputs,
-  - well-known types.
-- Improve error messages so plugin failures point at:
-  - proto file,
-  - service,
-  - method,
-  - field when applicable.
-- Add generated source formatting with `prettyplease`.
-- Add a test utility that makes snapshot updates explicit and easy to review.
-
-Review focus:
-
-- This phase is about generator trustworthiness rather than new features.
-- Fail early and loudly instead of generating code that fails mysteriously in a
-  downstream crate.
-
-Phase gate:
-
-```sh
-buf lint
-buf generate
-git diff --exit-code
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
-```
-
-## Phase 14: Documentation And Release Readiness
-
-Goal: turn the green implementation into a usable crate set.
+Goal: keep the personal-tool version from failing mysteriously in generated
+code, without turning the crate set into a polished public product.
 
 Implementation:
 
-- Update root README with:
-  - crate purpose,
-  - status,
-  - quick start,
-  - Buf install/generate workflow,
-  - Axum composition example,
-  - unary and streaming REST examples.
-- Add API docs to public runtime helpers.
-- Add `docs/migrating-from-tonic2axum.md`:
-  - `build.rs` to Buf,
-  - Tonic service impl to Connect service impl,
-  - Prost messages to Buffa messages/views,
-  - old WebSocket behavior to `connect2ws` JSON WebSockets or Connect-native
-    streaming,
-  - removed custom string work.
-- Add `docs/plugin-options.md`.
-- Add release checklist:
-  - MSRV,
-  - crate metadata,
-  - license,
-  - examples,
-  - docs.rs feature set,
-  - CI commands.
-- Decide whether to publish:
-  - one runtime crate plus one codegen crate,
-  - or runtime crate only with codegen as an unpublished workspace helper.
+- Keep generated source formatting through `prettyplease`.
+- Fail during codegen for duplicate generated Rust identifiers:
+  - service module names;
+  - generated DTO names;
+  - REST handler names;
+  - WebSocket handler names.
+- Fail during codegen for duplicate generated routes:
+  - REST routes use the HTTP verb plus path;
+  - WebSocket routes use the generated `{http_path}/ws` path.
+- Add focused descriptor coverage for:
+  - multiple services in one proto file;
+  - cross-package input/output messages;
+  - same-package messages split across multiple proto files;
+  - `google.protobuf.Empty`;
+  - server-streaming REST with path/query bindings remaining valid while
+    WebSocket generation skips it.
+- Add a short `docs/plugin-options.md`.
 
-Review focus:
+Skipped:
 
-- Docs should teach the new project style directly. Avoid presenting this as a
-  thin rewrite of the Tonic-era builder.
+- Product polish, release readiness, migration docs, snapshot tooling, and
+  broad compatibility hardening are intentionally out of scope unless this
+  stops being a personal utility.
 
 Phase gate:
 

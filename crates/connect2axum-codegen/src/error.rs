@@ -16,6 +16,8 @@ pub enum CodegenErrKind {
     RequestMessageNotFound,
     BodyFieldNotFound,
     TypeResolutionFailed,
+    DuplicateGeneratedIdentifier,
+    DuplicateRoute,
 }
 
 impl UniKind for CodegenErrKind {
@@ -37,6 +39,10 @@ impl UniKind for CodegenErrKind {
             Self::RequestMessageNotFound => Some("request message was not found".into()),
             Self::BodyFieldNotFound => Some("google.api.http body field was not found".into()),
             Self::TypeResolutionFailed => Some("protobuf type could not be resolved".into()),
+            Self::DuplicateGeneratedIdentifier => {
+                Some("duplicate generated Rust identifier".into())
+            }
+            Self::DuplicateRoute => Some("duplicate generated route".into()),
         }
     }
 }
