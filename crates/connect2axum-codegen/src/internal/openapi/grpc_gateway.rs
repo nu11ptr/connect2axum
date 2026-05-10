@@ -6,6 +6,7 @@ use std::process::{Command, Stdio};
 use buffa::Message as _;
 use connectrpc_codegen::codegen::descriptor::FileDescriptorProto;
 use connectrpc_codegen::plugin::CodeGeneratorResponse;
+use flexstr::SharedStr;
 use uni_error::UniError;
 
 use crate::CodeGeneratorRequest;
@@ -41,15 +42,21 @@ pub fn openapiv3_binary(configured: Option<&Path>) -> CodegenResult<PathBuf> {
     ))
 }
 
-pub fn openapiv3_parameter(options: &[String]) -> String {
-    let mut options = options.to_vec();
+pub fn openapiv3_parameter(options: &[SharedStr]) -> String {
+    let mut parameter = String::new();
     if !options
         .iter()
-        .any(|option| option.starts_with("disable_default_errors="))
+        .any(|option| option.as_ref().starts_with("disable_default_errors="))
     {
-        options.insert(0, "disable_default_errors=true".to_owned());
+        parameter.push_str("disable_default_errors=true");
     }
-    options.join(",")
+    for option in options {
+        if !parameter.is_empty() {
+            parameter.push(',');
+        }
+        parameter.push_str(option.as_ref());
+    }
+    parameter
 }
 
 pub fn run_openapiv3(

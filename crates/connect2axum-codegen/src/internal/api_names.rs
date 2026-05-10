@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
+use flexstr::{SharedStr, ToOwnedFlexStr as _};
 use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
@@ -48,7 +49,7 @@ impl<'a> PackagePrefixNamer<'a> {
 
 pub struct ComponentNameTracker {
     context: &'static str,
-    names: BTreeMap<String, String>,
+    names: BTreeMap<SharedStr, SharedStr>,
 }
 
 impl ComponentNameTracker {
@@ -59,19 +60,21 @@ impl ComponentNameTracker {
         }
     }
 
-    pub fn record(&mut self, source: &str, output: String) -> CodegenResult<String> {
+    pub fn record(&mut self, source: &str, output: SharedStr) -> CodegenResult<SharedStr> {
         if let Some(existing) = self.names.get(&output) {
-            if existing != source {
+            if existing.as_ref() != source {
                 return Err(UniError::from_kind_context(
                     CodegenErrKind::ApiNameCollision,
                     format!(
-                        "{} {output:?} would be generated for both {existing:?} and {source:?}; set suppress_pkg_prefix=false or rename one of the protobuf declarations",
-                        self.context
+                        "{} {:?} would be generated for both {:?} and {source:?}; set suppress_pkg_prefix=false or rename one of the protobuf declarations",
+                        self.context,
+                        output.as_ref(),
+                        existing.as_ref()
                     ),
                 ));
             }
         } else {
-            self.names.insert(output.clone(), source.to_owned());
+            self.names.insert(output.clone(), source.to_owned_opt());
         }
 
         Ok(output)

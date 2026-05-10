@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use connectrpc_codegen::plugin::{CodeGeneratorResponse, CodeGeneratorResponseFile};
+use flexstr::{IntoOptimizedFlexStr as _, SharedStr, ToOwnedFlexStr as _};
 use serde_json::{Map, Value, json};
 use uni_error::UniError;
 
@@ -39,7 +40,7 @@ pub fn generate(request: &CodeGeneratorRequest) -> CodegenResult<CodeGeneratorRe
 
     Ok(CodeGeneratorResponse {
         file: vec![CodeGeneratorResponseFile {
-            name: Some(options.output_file),
+            name: Some(options.output_file.as_ref().to_owned()),
             content: Some(content),
             ..Default::default()
         }],
@@ -49,19 +50,19 @@ pub fn generate(request: &CodeGeneratorRequest) -> CodegenResult<CodeGeneratorRe
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct AsyncApiOptions {
-    output_file: String,
+    output_file: SharedStr,
     config_path: Option<PathBuf>,
-    default_content_type: String,
-    server_url: Option<String>,
+    default_content_type: SharedStr,
+    server_url: Option<SharedStr>,
     suppress_pkg_prefix: bool,
 }
 
 impl Default for AsyncApiOptions {
     fn default() -> Self {
         Self {
-            output_file: DEFAULT_OUTPUT_FILE.to_owned(),
+            output_file: DEFAULT_OUTPUT_FILE.into(),
             config_path: None,
-            default_content_type: DEFAULT_CONTENT_TYPE.to_owned(),
+            default_content_type: DEFAULT_CONTENT_TYPE.into(),
             server_url: None,
             suppress_pkg_prefix: true,
         }
@@ -93,10 +94,10 @@ impl AsyncApiOptions {
             }
 
             match name {
-                "output" => options.output_file = value.to_owned(),
+                "output" => options.output_file = value.to_owned_opt(),
                 "config" => options.config_path = Some(PathBuf::from(value)),
-                "default_content_type" => options.default_content_type = value.to_owned(),
-                "server_url" => options.server_url = Some(value.to_owned()),
+                "default_content_type" => options.default_content_type = value.to_owned_opt(),
+                "server_url" => options.server_url = Some(value.to_owned_opt()),
                 "suppress_pkg_prefix" => {
                     options.suppress_pkg_prefix = parse_bool_option(name, value)?;
                 }
@@ -159,8 +160,8 @@ fn build_document(
             schema_registry.ensure_schema(ir, ws_method.method.output_type.as_ref())?;
 
         let service_tag = service_tag(ws_method.service);
-        tags.entry(ws_method.service.name.as_ref().to_owned())
-            .or_insert_with(|| service_tag.clone());
+        tags.entry(ws_method.service.name.clone())
+            .or_insert(service_tag);
 
         let request_message_key = message_component_key(
             ws_method.method,
@@ -176,43 +177,44 @@ fn build_document(
         )?;
 
         messages.insert(
-            request_message_key.clone(),
+            request_message_key.as_ref().to_owned(),
             message_component(
                 ir,
                 ws_method.method.input_type.as_ref(),
-                &request_message_key,
-                &input_schema_name,
-                &options.default_content_type,
+                request_message_key.as_ref(),
+                input_schema_name.as_ref(),
+                options.default_content_type.as_ref(),
             ),
         );
         messages.insert(
-            response_message_key.clone(),
+            response_message_key.as_ref().to_owned(),
             message_component(
                 ir,
                 ws_method.method.output_type.as_ref(),
-                &response_message_key,
-                &output_schema_name,
-                &options.default_content_type,
+                response_message_key.as_ref(),
+                output_schema_name.as_ref(),
+                options.default_content_type.as_ref(),
             ),
         );
 
         channels.insert(
-            ws_method.route_path.clone(),
+            ws_method.route_path.as_ref().to_owned(),
             channel_object(
                 ws_method,
-                &request_message_key,
-                &response_message_key,
+                request_message_key.as_ref(),
+                response_message_key.as_ref(),
                 config,
             ),
         );
 
+        let receive_operation_key = operation_key(
+            ws_method.method,
+            "receive",
+            &method_namer,
+            &mut operation_names,
+        )?;
         operations.insert(
-            operation_key(
-                ws_method.method,
-                "receive",
-                &method_namer,
-                &mut operation_names,
-            )?,
+            receive_operation_key.as_ref().to_owned(),
             operation_object(
                 ws_method,
                 "receive",
@@ -221,13 +223,14 @@ fn build_document(
                 config,
             ),
         );
+        let send_operation_key = operation_key(
+            ws_method.method,
+            "send",
+            &method_namer,
+            &mut operation_names,
+        )?;
         operations.insert(
-            operation_key(
-                ws_method.method,
-                "send",
-                &method_namer,
-                &mut operation_names,
-            )?,
+            send_operation_key.as_ref().to_owned(),
             operation_object(
                 ws_method,
                 "send",
@@ -264,7 +267,7 @@ fn build_document(
     document.insert("info".to_owned(), info_object(&config.info));
     document.insert(
         "defaultContentType".to_owned(),
-        Value::String(options.default_content_type.clone()),
+        Value::String(options.default_content_type.as_ref().to_owned()),
     );
 
     let servers = servers_object(config, options)?;
@@ -383,7 +386,7 @@ struct AsyncWsMethod<'a> {
     service: &'a Service,
     method: &'a Method,
     kind: AsyncWsMethodKind,
-    route_path: String,
+    route_path: SharedStr,
 }
 
 impl AsyncWsMethod<'_> {
@@ -430,7 +433,7 @@ fn servers_object(
 ) -> CodegenResult<Map<String, Value>> {
     let mut servers = Map::new();
     if let Some(url) = options.server_url.as_ref() {
-        servers.insert("default".to_owned(), server_from_url(url, None)?);
+        servers.insert("default".to_owned(), server_from_url(url.as_ref(), None)?);
     }
 
     for (index, server) in config.servers.iter().enumerate() {
@@ -523,7 +526,7 @@ fn channel_object(
     let mut channel = Map::new();
     channel.insert(
         "address".to_owned(),
-        Value::String(ws_method.route_path.clone()),
+        Value::String(ws_method.route_path.as_ref().to_owned()),
     );
     channel.insert("messages".to_owned(), Value::Object(channel_messages));
     if let Some(security) = asyncapi_security(config) {
@@ -533,7 +536,7 @@ fn channel_object(
         "x-connect2axum-websocket".to_owned(),
         json!({
             "json": true,
-            "route": ws_method.route_path,
+            "route": ws_method.route_path.as_ref(),
             "rpc": ws_method.method.full_name.as_ref(),
         }),
     );
@@ -549,11 +552,14 @@ fn operation_object(
 ) -> Value {
     let mut operation = Map::new();
     operation.insert("action".to_owned(), Value::String(action.to_owned()));
-    operation.insert("channel".to_owned(), channel_ref(&ws_method.route_path));
+    operation.insert(
+        "channel".to_owned(),
+        channel_ref(ws_method.route_path.as_ref()),
+    );
     operation.insert(
         "messages".to_owned(),
         Value::Array(vec![channel_message_ref(
-            &ws_method.route_path,
+            ws_method.route_path.as_ref(),
             channel_message_key,
         )]),
     );
@@ -643,7 +649,7 @@ fn message_component(
 
 struct SchemaRegistry<'a> {
     schemas: Map<String, Value>,
-    seen: BTreeSet<String>,
+    seen: BTreeSet<SharedStr>,
     namer: PackagePrefixNamer<'a>,
     names: ComponentNameTracker,
 }
@@ -658,9 +664,9 @@ impl<'a> SchemaRegistry<'a> {
         }
     }
 
-    fn ensure_schema(&mut self, ir: &DescriptorIr, full_name: &str) -> CodegenResult<String> {
+    fn ensure_schema(&mut self, ir: &DescriptorIr, full_name: &str) -> CodegenResult<SharedStr> {
         let schema_name = self.schema_name(full_name)?;
-        if !self.seen.insert(full_name.to_owned()) {
+        if !self.seen.insert(full_name.to_owned_opt()) {
             return Ok(schema_name);
         }
 
@@ -671,13 +677,15 @@ impl<'a> SchemaRegistry<'a> {
         } else {
             json!({ "type": "object", "additionalProperties": true })
         };
-        self.schemas.insert(schema_name.clone(), schema);
+        self.schemas.insert(schema_name.as_ref().to_owned(), schema);
         Ok(schema_name)
     }
 
-    fn schema_name(&mut self, full_name: &str) -> CodegenResult<String> {
-        self.names
-            .record(full_name, self.namer.component_name(full_name).into_owned())
+    fn schema_name(&mut self, full_name: &str) -> CodegenResult<SharedStr> {
+        self.names.record(
+            full_name,
+            self.namer.component_name(full_name).into_owned().into_opt(),
+        )
     }
 
     fn message_schema(
@@ -726,7 +734,7 @@ impl<'a> SchemaRegistry<'a> {
         match kind {
             FieldKind::Message(full_name) | FieldKind::Group(full_name) => {
                 let schema_name = self.ensure_schema(ir, full_name.as_ref())?;
-                Ok(schema_ref(&schema_name))
+                Ok(schema_ref(schema_name.as_ref()))
             }
             _ => Ok(scalar_field_schema(kind)),
         }
@@ -759,14 +767,15 @@ fn operation_key(
     action: &str,
     namer: &PackagePrefixNamer<'_>,
     tracker: &mut ComponentNameTracker,
-) -> CodegenResult<String> {
+) -> CodegenResult<SharedStr> {
     tracker.record(
         &format!("{}.{}", method.full_name.as_ref(), action),
         format!(
             "{}_{}",
             component_name(namer.component_name(method.full_name.as_ref()).as_ref()),
             action
-        ),
+        )
+        .into_opt(),
     )
 }
 
@@ -775,18 +784,19 @@ fn message_component_key(
     direction: &str,
     namer: &PackagePrefixNamer<'_>,
     tracker: &mut ComponentNameTracker,
-) -> CodegenResult<String> {
+) -> CodegenResult<SharedStr> {
     tracker.record(
         &format!("{}.{}", method.full_name.as_ref(), direction),
         format!(
             "{}.{}",
             namer.component_name(method.full_name.as_ref()),
             direction
-        ),
+        )
+        .into_opt(),
     )
 }
 
-fn component_name(value: &str) -> String {
+fn component_name(value: &str) -> SharedStr {
     let mut name = value
         .chars()
         .map(|ch| {
@@ -800,7 +810,7 @@ fn component_name(value: &str) -> String {
     if name.starts_with('_') {
         name.remove(0);
     }
-    name
+    name.into_opt()
 }
 
 fn schema_ref(full_name: &str) -> Value {

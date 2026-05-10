@@ -1,13 +1,12 @@
 //! Small axum router for serving an embedded Scalar API reference.
 
-use std::sync::Arc;
-
 use axum::Router;
 use axum::body::Body;
 use axum::extract::State;
 use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use bytes::Bytes;
+use flexstr::SharedStr;
 use http::header::{CACHE_CONTROL, CONTENT_TYPE};
 
 #[cfg(docsrs)]
@@ -22,22 +21,22 @@ pub const SCALAR_VERSION: &str = env!("CONNECT2AXUM_SCALAR_VERSION");
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScalarOptions {
     /// Route path for the Scalar HTML page.
-    pub docs_path: String,
+    pub docs_path: SharedStr,
     /// Route path where the OpenAPI JSON document is served.
-    pub spec_path: String,
+    pub spec_path: SharedStr,
     /// Route path where the embedded Scalar JavaScript bundle is served.
-    pub js_path: String,
+    pub js_path: SharedStr,
     /// Browser page title for the Scalar HTML page.
-    pub title: String,
+    pub title: SharedStr,
 }
 
 impl Default for ScalarOptions {
     fn default() -> Self {
         Self {
-            docs_path: "/scalar".to_owned(),
-            spec_path: "/openapi.json".to_owned(),
-            js_path: "/scalar/scalar.js".to_owned(),
-            title: "API Reference".to_owned(),
+            docs_path: "/scalar".into(),
+            spec_path: "/openapi.json".into(),
+            js_path: "/scalar/scalar.js".into(),
+            title: "API Reference".into(),
         }
     }
 }
@@ -60,13 +59,13 @@ pub fn router_with_options(spec_json: impl Into<Bytes>, options: ScalarOptions) 
     } = options;
     let state = ScalarState {
         spec_json: spec_json.into(),
-        spec_path: Arc::from(spec_path),
-        js_path: Arc::from(js_path),
-        title: Arc::from(title),
+        spec_path,
+        js_path,
+        title,
     };
 
     Router::new()
-        .route(&docs_path, get(scalar_docs))
+        .route(docs_path.as_ref(), get(scalar_docs))
         .route(state.spec_path.as_ref(), get(openapi_json))
         .route(state.js_path.as_ref(), get(scalar_js))
         .with_state(state)
@@ -75,9 +74,9 @@ pub fn router_with_options(spec_json: impl Into<Bytes>, options: ScalarOptions) 
 #[derive(Clone)]
 struct ScalarState {
     spec_json: Bytes,
-    spec_path: Arc<str>,
-    js_path: Arc<str>,
-    title: Arc<str>,
+    spec_path: SharedStr,
+    js_path: SharedStr,
+    title: SharedStr,
 }
 
 async fn scalar_docs(State(state): State<ScalarState>) -> Html<String> {
@@ -105,9 +104,9 @@ async fn scalar_js() -> impl IntoResponse {
 }
 
 fn html_page(state: &ScalarState) -> String {
-    let title = escape_html(&state.title);
-    let spec_path = escape_html_attr(&state.spec_path);
-    let js_path = escape_html_attr(&state.js_path);
+    let title = escape_html(state.title.as_ref());
+    let spec_path = escape_html_attr(state.spec_path.as_ref());
+    let js_path = escape_html_attr(state.js_path.as_ref());
 
     format!(
         r#"<!doctype html>
@@ -146,7 +145,6 @@ fn escape_html_attr(value: &str) -> String {
 mod tests {
     use super::{ScalarState, escape_html_attr, html_page};
     use bytes::Bytes;
-    use std::sync::Arc;
 
     #[test]
     fn escapes_html_attributes() {
@@ -160,9 +158,9 @@ mod tests {
     fn page_points_scalar_at_spec_and_embedded_script() {
         let page = html_page(&ScalarState {
             spec_json: Bytes::new(),
-            spec_path: Arc::from("/openapi.json"),
-            js_path: Arc::from("/scalar/scalar.js"),
-            title: Arc::from("Docs"),
+            spec_path: "/openapi.json".into(),
+            js_path: "/scalar/scalar.js".into(),
+            title: "Docs".into(),
         });
 
         assert!(page.contains(r#"data-url="/openapi.json""#));

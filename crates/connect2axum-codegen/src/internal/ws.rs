@@ -1,5 +1,6 @@
 use buffa_codegen::idents::escape_mod_ident;
 use connectrpc_codegen::plugin::CodeGeneratorResponseFile;
+use flexstr::{IntoOptimizedFlexStr as _, SharedStr};
 use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -342,7 +343,7 @@ impl<'a> RustGenerator<'a> {
     }
 
     fn route_tokens(&self, ws_method: &WsMethod<'_>) -> CodegenResult<TokenStream> {
-        let path = ws_method.route_path.as_str();
+        let path = ws_method.route_path.as_ref();
         let method_ident = parse_ident(
             self.resolver
                 .method_fn_name(ws_method.method.name.as_ref())
@@ -402,10 +403,7 @@ impl<'a> RustGenerator<'a> {
             &scope,
             ws_methods.iter().map(|ws_method| {
                 (
-                    self.resolver
-                        .method_fn_name(ws_method.method.name.as_ref())
-                        .as_ref()
-                        .to_owned(),
+                    self.resolver.method_fn_name(ws_method.method.name.as_ref()),
                     format!("method {}", ws_method.method.full_name.as_ref()),
                 )
             }),
@@ -443,19 +441,19 @@ impl WsMethodKind {
 struct WsMethod<'a> {
     method: &'a Method,
     kind: WsMethodKind,
-    route_path: String,
+    route_path: SharedStr,
 }
 
 fn has_path_or_query(shape: &RequestShape) -> bool {
     !shape.path_fields.is_empty() || shape.query_shape.is_some()
 }
 
-pub fn ws_route_path(path: &str) -> String {
+pub fn ws_route_path(path: &str) -> SharedStr {
     let path = path.trim_end_matches('/');
     if path.is_empty() {
-        "/ws".to_owned()
+        "/ws".into()
     } else {
-        format!("{path}/ws")
+        format!("{path}/ws").into_opt()
     }
 }
 
@@ -475,11 +473,12 @@ fn comment_attrs(comments: &CommentSet) -> Vec<TokenStream> {
         .collect()
 }
 
-fn service_module_name(service_name: &str) -> String {
+fn service_module_name(service_name: &str) -> SharedStr {
     format!(
         "{}{WS_MODULE_SUFFIX}",
         escape_mod_ident(&service_name.to_snake_case())
     )
+    .into_opt()
 }
 
 fn parse_ident(value: &str, context: &'static str) -> CodegenResult<Ident> {

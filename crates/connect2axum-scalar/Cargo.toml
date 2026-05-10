@@ -19,4 +19,5 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 axum = { workspace = true }
 bytes.workspace = true
+flexstr.workspace = true
 http.workspace = true

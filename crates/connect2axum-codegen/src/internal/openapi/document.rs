@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use connectrpc_codegen::plugin::CodeGeneratorResponseFile;
+use flexstr::IntoOptimizedFlexStr as _;
 use serde_json::{Map, Value, json};
 use uni_error::UniError;
 
@@ -595,14 +596,15 @@ fn suppress_openapi_schema_package_prefixes(
     let mut rewrites = BTreeMap::new();
     let mut renamed = Map::new();
     for (name, schema) in std::mem::take(schemas) {
-        let new_name = tracker.record(&name, namer.component_name(&name).into_owned())?;
-        if new_name != name {
+        let new_name =
+            tracker.record(&name, namer.component_name(&name).into_owned().into_opt())?;
+        if new_name.as_ref() != name {
             rewrites.insert(
                 component_ref("schemas", &name),
-                component_ref("schemas", &new_name),
+                component_ref("schemas", new_name.as_ref()),
             );
         }
-        renamed.insert(new_name, schema);
+        renamed.insert(new_name.as_ref().to_owned(), schema);
     }
     *schemas = renamed;
 

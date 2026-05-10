@@ -1,5 +1,6 @@
 use buffa_codegen::idents::{escape_mod_ident, make_field_ident};
 use connectrpc_codegen::plugin::CodeGeneratorResponseFile;
+use flexstr::{IntoOptimizedFlexStr as _, SharedStr};
 use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -371,7 +372,7 @@ impl<'a> RustGenerator<'a> {
             &scope,
             self.shapes.generated_dtos.iter().map(|dto| {
                 (
-                    dto.name.as_ref().to_owned(),
+                    dto.name.clone(),
                     format!(
                         "generated {:?} DTO for {}",
                         dto.kind,
@@ -394,10 +395,7 @@ impl<'a> RustGenerator<'a> {
             &scope,
             methods.iter().map(|method| {
                 (
-                    self.resolver
-                        .method_fn_name(method.name.as_ref())
-                        .as_ref()
-                        .to_owned(),
+                    self.resolver.method_fn_name(method.name.as_ref()),
                     format!("method {}", method.full_name.as_ref()),
                 )
             }),
@@ -415,18 +413,14 @@ impl<'a> RustGenerator<'a> {
     }
 }
 
-fn rest_route_key(method: &Method) -> CodegenResult<String> {
+fn rest_route_key(method: &Method) -> CodegenResult<SharedStr> {
     let binding = method.http.as_ref().ok_or_else(|| {
         UniError::from_kind_context(
             CodegenErrKind::InvalidDescriptor,
             format!("method {} has no HTTP binding", method.full_name.as_ref()),
         )
     })?;
-    Ok(format!(
-        "{} {}",
-        binding.verb.as_str(),
-        binding.path.as_ref()
-    ))
+    Ok(format!("{} {}", binding.verb.as_str(), binding.path.as_ref()).into_opt())
 }
 
 fn dto_tokens(dto: &GeneratedDto) -> CodegenResult<TokenStream> {
@@ -535,11 +529,12 @@ fn comment_attrs(comments: &CommentSet) -> Vec<TokenStream> {
         .collect()
 }
 
-fn service_module_name(service_name: &str) -> String {
+fn service_module_name(service_name: &str) -> SharedStr {
     format!(
         "{}{REST_MODULE_SUFFIX}",
         escape_mod_ident(&service_name.to_snake_case())
     )
+    .into_opt()
 }
 
 fn path_extractor_param(

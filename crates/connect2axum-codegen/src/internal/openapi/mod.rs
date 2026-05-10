@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use connectrpc_codegen::plugin::{CodeGeneratorResponse, CodeGeneratorResponseFile};
+use flexstr::{SharedStr, ToOwnedFlexStr as _};
 use uni_error::UniError;
 
 use crate::CodeGeneratorRequest;
@@ -48,7 +49,7 @@ pub fn generate(request: &CodeGeneratorRequest) -> CodegenResult<CodeGeneratorRe
     let document = merge_openapi_documents(
         child.file,
         &ir,
-        config.streaming_content_type(&options.streaming_content_type),
+        config.streaming_content_type(options.streaming_content_type.as_ref()),
         &config,
         options.suppress_pkg_prefix,
     )?;
@@ -61,7 +62,7 @@ pub fn generate(request: &CodeGeneratorRequest) -> CodegenResult<CodeGeneratorRe
 
     Ok(CodeGeneratorResponse {
         file: vec![CodeGeneratorResponseFile {
-            name: Some(options.output_file),
+            name: Some(options.output_file.as_ref().to_owned()),
             content: Some(content),
             ..Default::default()
         }],
@@ -74,22 +75,22 @@ pub fn generate(request: &CodeGeneratorRequest) -> CodegenResult<CodeGeneratorRe
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct OpenApiOptions {
-    output_file: String,
+    output_file: SharedStr,
     config_path: Option<PathBuf>,
     openapiv3_bin: Option<PathBuf>,
-    openapiv3_options: Vec<String>,
-    streaming_content_type: String,
+    openapiv3_options: Vec<SharedStr>,
+    streaming_content_type: SharedStr,
     suppress_pkg_prefix: bool,
 }
 
 impl Default for OpenApiOptions {
     fn default() -> Self {
         Self {
-            output_file: DEFAULT_OUTPUT_FILE.to_owned(),
+            output_file: DEFAULT_OUTPUT_FILE.into(),
             config_path: None,
             openapiv3_bin: None,
             openapiv3_options: Vec::new(),
-            streaming_content_type: DEFAULT_STREAMING_CONTENT_TYPE.to_owned(),
+            streaming_content_type: DEFAULT_STREAMING_CONTENT_TYPE.into(),
             suppress_pkg_prefix: true,
         }
     }
@@ -120,11 +121,11 @@ impl OpenApiOptions {
             }
 
             match name {
-                "output" => options.output_file = value.to_owned(),
+                "output" => options.output_file = value.to_owned_opt(),
                 "config" => options.config_path = Some(PathBuf::from(value)),
                 "openapiv3_bin" => options.openapiv3_bin = Some(PathBuf::from(value)),
-                "openapiv3_opt" => options.openapiv3_options.push(value.to_owned()),
-                "streaming_content_type" => options.streaming_content_type = value.to_owned(),
+                "openapiv3_opt" => options.openapiv3_options.push(value.to_owned_opt()),
+                "streaming_content_type" => options.streaming_content_type = value.to_owned_opt(),
                 "suppress_pkg_prefix" => {
                     options.suppress_pkg_prefix = parse_bool_option(name, value)?;
                 }
