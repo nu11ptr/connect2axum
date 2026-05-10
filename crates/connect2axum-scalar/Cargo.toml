@@ -1,6 +1,6 @@
 [package]
 name = "connect2axum-scalar"
-version = "0.1.0"
+version = "0.1.1"
 description = "Embedded Scalar API reference routes for connect2axum OpenAPI documents"
 readme = "../../README.md"
 authors.workspace = true

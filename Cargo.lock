@@ -216,7 +216,7 @@ dependencies = [
 
 [[package]]
 name = "connect2axum-codegen"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "buffa",
  "buffa-codegen",
@@ -236,7 +236,7 @@ dependencies = [
 
 [[package]]
 name = "connect2axum-scalar"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "bytes",
