@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
+
 use connectrpc_codegen::plugin::CodeGeneratorResponseFile;
 use serde_json::{Map, Value, json};
 use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
+use crate::internal::api_names::{ComponentNameTracker, PackagePrefixNamer};
 use crate::internal::ir::{DescriptorIr, HttpVerb, ProtoFile};
 use crate::internal::options::CodegenOptions;
 use crate::internal::shape::{RequestPartShape, ShapeField, plan_file_shapes};
@@ -14,14 +17,13 @@ use super::value::{ensure_array_at, ensure_nested_object, ensure_object_at, merg
 
 const DEFAULT_OPENAPI_FILE_NAME: &str = "openapi.json";
 const OPENAPI_JSON_CONTENT_TYPE: &str = "application/json";
-const CONNECT_ERROR_SCHEMA: &str = "connect2axum.ConnectError";
-const CONNECT_ERROR_RESPONSE: &str = "connect2axum.ConnectError";
 
 pub fn merge_openapi_documents(
     files: Vec<CodeGeneratorResponseFile>,
     ir: &DescriptorIr,
     streaming_content_type: &str,
     config: &DocConfig,
+    suppress_pkg_prefix: bool,
 ) -> CodegenResult<Value> {
     let mut merged = json!({
         "openapi": "3.1.0",
@@ -89,9 +91,7 @@ pub fn merge_openapi_documents(
     apply_config(&mut merged, config)?;
     patch_generated_body_shapes(&mut merged, ir)?;
     patch_streaming_operations(&mut merged, ir, streaming_content_type)?;
-    if config.add_default_error_response() {
-        add_connect_error_response(&mut merged)?;
-    }
+    suppress_openapi_schema_package_prefixes(&mut merged, ir, suppress_pkg_prefix)?;
     validate_document(&merged)?;
 
     Ok(merged)
@@ -572,85 +572,71 @@ fn nested_object_mut<'a>(
     Ok(Some(current))
 }
 
-pub fn add_connect_error_response(document: &mut Value) -> CodegenResult<()> {
-    let components = ensure_object_at(document, "components");
-    let schemas = ensure_nested_object(components, "schemas")?;
-    schemas
-        .entry(CONNECT_ERROR_SCHEMA.to_owned())
-        .or_insert_with(connect_error_schema);
-
-    let responses = ensure_nested_object(components, "responses")?;
-    responses
-        .entry(CONNECT_ERROR_RESPONSE.to_owned())
-        .or_insert_with(connect_error_response);
-
-    let Some(paths) = document.get_mut("paths").and_then(Value::as_object_mut) else {
+fn suppress_openapi_schema_package_prefixes(
+    document: &mut Value,
+    ir: &DescriptorIr,
+    suppress_pkg_prefix: bool,
+) -> CodegenResult<()> {
+    if !suppress_pkg_prefix {
         return Ok(());
-    };
-    for path_item in paths.values_mut() {
-        let Some(path_item) = path_item.as_object_mut() else {
-            continue;
-        };
-        for &method in http_method_names() {
-            let Some(operation) = path_item.get_mut(method).and_then(Value::as_object_mut) else {
-                continue;
-            };
-            let responses = operation
-                .entry("responses")
-                .or_insert_with(|| Value::Object(Map::new()))
-                .as_object_mut()
-                .ok_or_else(|| {
-                    UniError::from_kind_context(
-                        CodegenErrKind::OpenApiInvalidDocument,
-                        "operation responses was not an object",
-                    )
-                })?;
-            responses.entry("default".to_owned()).or_insert_with(
-                || json!({ "$ref": "#/components/responses/connect2axum.ConnectError" }),
-            );
-        }
     }
 
+    let namer = PackagePrefixNamer::new(ir, true);
+    let Some(schemas) = document
+        .get_mut("components")
+        .and_then(Value::as_object_mut)
+        .and_then(|components| components.get_mut("schemas"))
+        .and_then(Value::as_object_mut)
+    else {
+        return Ok(());
+    };
+
+    let mut tracker = ComponentNameTracker::new("OpenAPI schema component");
+    let mut rewrites = BTreeMap::new();
+    let mut renamed = Map::new();
+    for (name, schema) in std::mem::take(schemas) {
+        let new_name = tracker.record(&name, namer.component_name(&name).into_owned())?;
+        if new_name != name {
+            rewrites.insert(
+                component_ref("schemas", &name),
+                component_ref("schemas", &new_name),
+            );
+        }
+        renamed.insert(new_name, schema);
+    }
+    *schemas = renamed;
+
+    rewrite_refs(document, &rewrites);
     Ok(())
 }
 
-fn connect_error_schema() -> Value {
-    json!({
-        "type": "object",
-        "description": "Connect error response.",
-        "required": ["code", "message"],
-        "properties": {
-            "code": {
-                "type": "string",
-                "description": "Connect error code."
-            },
-            "message": {
-                "type": "string",
-                "description": "Developer-facing error message."
-            },
-            "details": {
-                "type": "array",
-                "description": "Optional typed error details.",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": true
-                }
-            }
-        }
-    })
+fn component_ref(section: &str, name: &str) -> String {
+    format!("#/components/{section}/{}", json_pointer_escape(name))
 }
 
-fn connect_error_response() -> Value {
-    json!({
-        "description": "Connect error response.",
-        "content": {
-            "application/json": {
-                "schema": {
-                    "$ref": "#/components/schemas/connect2axum.ConnectError"
-                }
+fn rewrite_refs(value: &mut Value, rewrites: &BTreeMap<String, String>) {
+    match value {
+        Value::Object(object) => {
+            if let Some(Value::String(reference)) = object.get_mut("$ref")
+                && let Some(replacement) = rewrites.get(reference.as_str())
+            {
+                *reference = replacement.clone();
+            }
+            for value in object.values_mut() {
+                rewrite_refs(value, rewrites);
             }
         }
-    })
+        Value::Array(values) => {
+            for value in values {
+                rewrite_refs(value, rewrites);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn json_pointer_escape(value: &str) -> String {
+    value.replace('~', "~0").replace('/', "~1")
 }
 
 fn http_method_names() -> &'static [&'static str] {
@@ -667,4 +653,12 @@ fn openapi_method_name(verb: HttpVerb) -> &'static str {
         HttpVerb::Delete => "delete",
         HttpVerb::Patch => "patch",
     }
+}
+
+#[cfg(test)]
+pub fn suppress_openapi_schema_package_prefixes_for_test(
+    document: &mut Value,
+    ir: &DescriptorIr,
+) -> CodegenResult<()> {
+    suppress_openapi_schema_package_prefixes(document, ir, true)
 }

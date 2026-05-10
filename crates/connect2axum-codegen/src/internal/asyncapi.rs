@@ -7,6 +7,7 @@ use uni_error::UniError;
 
 use crate::CodeGeneratorRequest;
 use crate::error::{CodegenErrKind, CodegenResult};
+use crate::internal::api_names::{ComponentNameTracker, PackagePrefixNamer};
 use crate::internal::guardrails::ensure_unique_routes;
 use crate::internal::ir::{DescriptorIr, Field, FieldKind, FieldLabel, Method, Service, build_ir};
 use crate::internal::openapi::comments::comment_description;
@@ -52,6 +53,7 @@ struct AsyncApiOptions {
     config_path: Option<PathBuf>,
     default_content_type: String,
     server_url: Option<String>,
+    suppress_pkg_prefix: bool,
 }
 
 impl Default for AsyncApiOptions {
@@ -61,6 +63,7 @@ impl Default for AsyncApiOptions {
             config_path: None,
             default_content_type: DEFAULT_CONTENT_TYPE.to_owned(),
             server_url: None,
+            suppress_pkg_prefix: true,
         }
     }
 }
@@ -94,6 +97,9 @@ impl AsyncApiOptions {
                 "config" => options.config_path = Some(PathBuf::from(value)),
                 "default_content_type" => options.default_content_type = value.to_owned(),
                 "server_url" => options.server_url = Some(value.to_owned()),
+                "suppress_pkg_prefix" => {
+                    options.suppress_pkg_prefix = parse_bool_option(name, value)?;
+                }
                 _ => {
                     return Err(UniError::from_kind_context(
                         CodegenErrKind::UnknownPluginOption,
@@ -118,6 +124,14 @@ fn invalid_option(context: String) -> uni_error::UniError<CodegenErrKind> {
     UniError::from_kind_context(CodegenErrKind::InvalidPluginOption, context)
 }
 
+fn parse_bool_option(name: &str, value: &str) -> CodegenResult<bool> {
+    match value {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(invalid_option(format!("{name} must be true or false"))),
+    }
+}
+
 fn build_document(
     ir: &DescriptorIr,
     options: &AsyncApiOptions,
@@ -128,22 +142,38 @@ fn build_document(
         return Ok(None);
     }
 
-    let mut schema_registry = SchemaRegistry::default();
+    let method_namer = PackagePrefixNamer::new(ir, options.suppress_pkg_prefix);
+    let mut schema_registry =
+        SchemaRegistry::new(PackagePrefixNamer::new(ir, options.suppress_pkg_prefix));
+    let mut message_names = ComponentNameTracker::new("AsyncAPI message component");
+    let mut operation_names = ComponentNameTracker::new("AsyncAPI operation");
     let mut channels = Map::new();
     let mut operations = Map::new();
     let mut messages = Map::new();
     let mut tags = BTreeMap::new();
 
     for ws_method in &ws_methods {
-        schema_registry.ensure_schema(ir, ws_method.method.input_type.as_ref());
-        schema_registry.ensure_schema(ir, ws_method.method.output_type.as_ref());
+        let input_schema_name =
+            schema_registry.ensure_schema(ir, ws_method.method.input_type.as_ref())?;
+        let output_schema_name =
+            schema_registry.ensure_schema(ir, ws_method.method.output_type.as_ref())?;
 
         let service_tag = service_tag(ws_method.service);
         tags.entry(ws_method.service.name.as_ref().to_owned())
             .or_insert_with(|| service_tag.clone());
 
-        let request_message_key = message_component_key(ws_method.method, "request");
-        let response_message_key = message_component_key(ws_method.method, "response");
+        let request_message_key = message_component_key(
+            ws_method.method,
+            "request",
+            &method_namer,
+            &mut message_names,
+        )?;
+        let response_message_key = message_component_key(
+            ws_method.method,
+            "response",
+            &method_namer,
+            &mut message_names,
+        )?;
 
         messages.insert(
             request_message_key.clone(),
@@ -151,6 +181,7 @@ fn build_document(
                 ir,
                 ws_method.method.input_type.as_ref(),
                 &request_message_key,
+                &input_schema_name,
                 &options.default_content_type,
             ),
         );
@@ -160,6 +191,7 @@ fn build_document(
                 ir,
                 ws_method.method.output_type.as_ref(),
                 &response_message_key,
+                &output_schema_name,
                 &options.default_content_type,
             ),
         );
@@ -175,7 +207,12 @@ fn build_document(
         );
 
         operations.insert(
-            operation_key(ws_method.method, "receive"),
+            operation_key(
+                ws_method.method,
+                "receive",
+                &method_namer,
+                &mut operation_names,
+            )?,
             operation_object(
                 ws_method,
                 "receive",
@@ -185,7 +222,12 @@ fn build_document(
             ),
         );
         operations.insert(
-            operation_key(ws_method.method, "send"),
+            operation_key(
+                ws_method.method,
+                "send",
+                &method_namer,
+                &mut operation_names,
+            )?,
             operation_object(
                 ws_method,
                 "send",
@@ -581,6 +623,7 @@ fn message_component(
     ir: &DescriptorIr,
     message_type: &str,
     name: &str,
+    schema_name: &str,
     default_content_type: &str,
 ) -> Value {
     let mut message = Map::new();
@@ -594,37 +637,54 @@ fn message_component(
     {
         message.insert("description".to_owned(), Value::String(description));
     }
-    message.insert("payload".to_owned(), schema_ref(message_type));
+    message.insert("payload".to_owned(), schema_ref(schema_name));
     Value::Object(message)
 }
 
-#[derive(Default)]
-struct SchemaRegistry {
+struct SchemaRegistry<'a> {
     schemas: Map<String, Value>,
     seen: BTreeSet<String>,
+    namer: PackagePrefixNamer<'a>,
+    names: ComponentNameTracker,
 }
 
-impl SchemaRegistry {
-    fn ensure_schema(&mut self, ir: &DescriptorIr, full_name: &str) {
+impl<'a> SchemaRegistry<'a> {
+    fn new(namer: PackagePrefixNamer<'a>) -> Self {
+        Self {
+            schemas: Map::new(),
+            seen: BTreeSet::new(),
+            namer,
+            names: ComponentNameTracker::new("AsyncAPI schema component"),
+        }
+    }
+
+    fn ensure_schema(&mut self, ir: &DescriptorIr, full_name: &str) -> CodegenResult<String> {
+        let schema_name = self.schema_name(full_name)?;
         if !self.seen.insert(full_name.to_owned()) {
-            return;
+            return Ok(schema_name);
         }
 
         let schema = if full_name == "google.protobuf.Empty" {
             json!({ "type": "object", "properties": {} })
         } else if let Some(message) = ir.message(full_name) {
-            self.message_schema(ir, message)
+            self.message_schema(ir, message)?
         } else {
             json!({ "type": "object", "additionalProperties": true })
         };
-        self.schemas.insert(full_name.to_owned(), schema);
+        self.schemas.insert(schema_name.clone(), schema);
+        Ok(schema_name)
+    }
+
+    fn schema_name(&mut self, full_name: &str) -> CodegenResult<String> {
+        self.names
+            .record(full_name, self.namer.component_name(full_name).into_owned())
     }
 
     fn message_schema(
         &mut self,
         ir: &DescriptorIr,
         message: &crate::internal::ir::Message,
-    ) -> Value {
+    ) -> CodegenResult<Value> {
         let mut schema = Map::new();
         schema.insert("type".to_owned(), Value::String("object".to_owned()));
         if let Some(description) = comment_description(&message.comments) {
@@ -635,24 +695,22 @@ impl SchemaRegistry {
             .fields
             .iter()
             .map(|field| {
-                (
-                    field.json_name.as_ref().to_owned(),
-                    self.field_schema(ir, field),
-                )
+                let schema = self.field_schema(ir, field)?;
+                Ok((field.json_name.as_ref().to_owned(), schema))
             })
-            .collect::<Map<_, _>>();
+            .collect::<CodegenResult<Map<_, _>>>()?;
         schema.insert("properties".to_owned(), Value::Object(properties));
-        Value::Object(schema)
+        Ok(Value::Object(schema))
     }
 
-    fn field_schema(&mut self, ir: &DescriptorIr, field: &Field) -> Value {
+    fn field_schema(&mut self, ir: &DescriptorIr, field: &Field) -> CodegenResult<Value> {
         let mut schema = if field.label == Some(FieldLabel::Repeated) {
             json!({
                 "type": "array",
-                "items": self.single_field_schema(ir, &field.kind)
+                "items": self.single_field_schema(ir, &field.kind)?
             })
         } else {
-            self.single_field_schema(ir, &field.kind)
+            self.single_field_schema(ir, &field.kind)?
         };
 
         if let Some(description) = comment_description(&field.comments)
@@ -661,16 +719,16 @@ impl SchemaRegistry {
             schema.insert("description".to_owned(), Value::String(description));
         }
 
-        schema
+        Ok(schema)
     }
 
-    fn single_field_schema(&mut self, ir: &DescriptorIr, kind: &FieldKind) -> Value {
+    fn single_field_schema(&mut self, ir: &DescriptorIr, kind: &FieldKind) -> CodegenResult<Value> {
         match kind {
             FieldKind::Message(full_name) | FieldKind::Group(full_name) => {
-                self.ensure_schema(ir, full_name.as_ref());
-                schema_ref(full_name.as_ref())
+                let schema_name = self.ensure_schema(ir, full_name.as_ref())?;
+                Ok(schema_ref(&schema_name))
             }
-            _ => scalar_field_schema(kind),
+            _ => Ok(scalar_field_schema(kind)),
         }
     }
 }
@@ -696,12 +754,36 @@ fn asyncapi_security(config: &DocConfig) -> Option<Value> {
     }
 }
 
-fn operation_key(method: &Method, action: &str) -> String {
-    format!("{}_{}", component_name(method.full_name.as_ref()), action)
+fn operation_key(
+    method: &Method,
+    action: &str,
+    namer: &PackagePrefixNamer<'_>,
+    tracker: &mut ComponentNameTracker,
+) -> CodegenResult<String> {
+    tracker.record(
+        &format!("{}.{}", method.full_name.as_ref(), action),
+        format!(
+            "{}_{}",
+            component_name(namer.component_name(method.full_name.as_ref()).as_ref()),
+            action
+        ),
+    )
 }
 
-fn message_component_key(method: &Method, direction: &str) -> String {
-    format!("{}.{}", method.full_name.as_ref(), direction)
+fn message_component_key(
+    method: &Method,
+    direction: &str,
+    namer: &PackagePrefixNamer<'_>,
+    tracker: &mut ComponentNameTracker,
+) -> CodegenResult<String> {
+    tracker.record(
+        &format!("{}.{}", method.full_name.as_ref(), direction),
+        format!(
+            "{}.{}",
+            namer.component_name(method.full_name.as_ref()),
+            direction
+        ),
+    )
 }
 
 fn component_name(value: &str) -> String {
@@ -778,7 +860,7 @@ mod tests {
     #[test]
     fn parses_asyncapi_options() {
         let options = AsyncApiOptions::parse(Some(
-            "output=docs/asyncapi.json,config=asyncapi.yaml,default_content_type=application/custom+json,server_url=wss://api.example.test/ws",
+            "output=docs/asyncapi.json,config=asyncapi.yaml,default_content_type=application/custom+json,server_url=wss://api.example.test/ws,suppress_pkg_prefix=false",
         ))
         .unwrap();
 
@@ -795,6 +877,7 @@ mod tests {
             options.server_url.as_deref(),
             Some("wss://api.example.test/ws")
         );
+        assert!(!options.suppress_pkg_prefix);
     }
 
     #[test]
@@ -811,17 +894,26 @@ mod tests {
 
         assert!(
             document["operations"]
-                .get("streaming_v1_GreeterService_Expand_receive")
+                .get("GreeterService_Expand_receive")
                 .is_some()
         );
         assert_eq!(
-            document["operations"]["streaming_v1_GreeterService_Collect_receive"]["x-connect2axum-end-of-stream"]
+            document["operations"]["GreeterService_Collect_receive"]["x-connect2axum-end-of-stream"]
                 ["payload"],
             ""
         );
         assert_eq!(
-            document["components"]["schemas"]["streaming.v1.HelloSummary"]["properties"]["names"]["type"],
+            document["components"]["schemas"]["HelloSummary"]["properties"]["names"]["type"],
             "array"
+        );
+        assert_eq!(
+            document["components"]["messages"]["GreeterService.Expand.response"]["payload"]["$ref"],
+            "#/components/schemas/HelloReply"
+        );
+        assert!(
+            document["components"]["messages"]
+                .get("streaming.v1.GreeterService.Expand.response")
+                .is_none()
         );
     }
 
@@ -861,9 +953,67 @@ mod tests {
             "bearer"
         );
         assert_eq!(
-            document["operations"]["streaming_v1_GreeterService_Expand_receive"]["security"][0]["$ref"],
+            document["operations"]["GreeterService_Expand_receive"]["security"][0]["$ref"],
             "#/components/securitySchemes/BearerAuth"
         );
+    }
+
+    #[test]
+    fn keeps_package_prefixes_when_requested() {
+        let ir = test_ir();
+        let options = AsyncApiOptions {
+            suppress_pkg_prefix: false,
+            ..Default::default()
+        };
+        let document = build_document(&ir, &options, &DocConfig::default())
+            .unwrap()
+            .unwrap();
+
+        assert!(
+            document["operations"]
+                .get("streaming_v1_GreeterService_Expand_receive")
+                .is_some()
+        );
+        assert!(
+            document["components"]["schemas"]
+                .get("streaming.v1.HelloSummary")
+                .is_some()
+        );
+        assert_eq!(
+            document["components"]["messages"]["streaming.v1.GreeterService.Expand.response"]["payload"]
+                ["$ref"],
+            "#/components/schemas/streaming.v1.HelloReply"
+        );
+    }
+
+    #[test]
+    fn rejects_suppressed_schema_name_collisions() {
+        let mut ir = test_ir();
+        ir.files.push(ProtoFile {
+            name: "other.proto".into(),
+            package: "other.v1".into(),
+            messages: vec![Message {
+                name: "HelloRequest".into(),
+                full_name: "other.v1.HelloRequest".into(),
+                comments: CommentSet::default(),
+                fields: Vec::new(),
+                messages: Vec::new(),
+            }],
+            services: Vec::new(),
+        });
+        ir.files[0].messages[0].fields.push(Field {
+            name: "other".into(),
+            json_name: "other".into(),
+            number: Some(3),
+            label: Some(FieldLabel::Optional),
+            kind: FieldKind::Message("other.v1.HelloRequest".into()),
+            comments: CommentSet::default(),
+        });
+
+        let err =
+            build_document(&ir, &AsyncApiOptions::default(), &DocConfig::default()).unwrap_err();
+
+        assert!(err.to_string().contains("HelloRequest"));
     }
 
     #[test]

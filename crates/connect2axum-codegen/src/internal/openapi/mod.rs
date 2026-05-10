@@ -50,6 +50,7 @@ pub fn generate(request: &CodeGeneratorRequest) -> CodegenResult<CodeGeneratorRe
         &ir,
         config.streaming_content_type(&options.streaming_content_type),
         &config,
+        options.suppress_pkg_prefix,
     )?;
     let content = serde_json::to_string_pretty(&document).map_err(|err| {
         UniError::from_kind_context(
@@ -78,6 +79,7 @@ struct OpenApiOptions {
     openapiv3_bin: Option<PathBuf>,
     openapiv3_options: Vec<String>,
     streaming_content_type: String,
+    suppress_pkg_prefix: bool,
 }
 
 impl Default for OpenApiOptions {
@@ -88,6 +90,7 @@ impl Default for OpenApiOptions {
             openapiv3_bin: None,
             openapiv3_options: Vec::new(),
             streaming_content_type: DEFAULT_STREAMING_CONTENT_TYPE.to_owned(),
+            suppress_pkg_prefix: true,
         }
     }
 }
@@ -122,6 +125,9 @@ impl OpenApiOptions {
                 "openapiv3_bin" => options.openapiv3_bin = Some(PathBuf::from(value)),
                 "openapiv3_opt" => options.openapiv3_options.push(value.to_owned()),
                 "streaming_content_type" => options.streaming_content_type = value.to_owned(),
+                "suppress_pkg_prefix" => {
+                    options.suppress_pkg_prefix = parse_bool_option(name, value)?;
+                }
                 _ => {
                     return Err(UniError::from_kind_context(
                         CodegenErrKind::UnknownPluginOption,
@@ -146,6 +152,14 @@ fn invalid_option(context: String) -> uni_error::UniError<CodegenErrKind> {
     UniError::from_kind_context(CodegenErrKind::InvalidPluginOption, context)
 }
 
+fn parse_bool_option(name: &str, value: &str) -> CodegenResult<bool> {
+    match value {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(invalid_option(format!("{name} must be true or false"))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use buffa::MessageField;
@@ -158,8 +172,8 @@ mod tests {
     use super::OpenApiOptions;
     use super::config::{DocConfig, HeaderConfig, InfoConfig};
     use super::document::{
-        add_connect_error_response, apply_config, merge_document, merge_openapi_documents,
-        patch_streaming_operations,
+        apply_config, merge_document, merge_openapi_documents, patch_streaming_operations,
+        suppress_openapi_schema_package_prefixes_for_test,
     };
     use super::grpc_gateway::inject_go_packages;
     use crate::internal::ir::{
@@ -170,7 +184,7 @@ mod tests {
     #[test]
     fn parses_openapi_options() {
         let options = OpenApiOptions::parse(Some(
-            "output=docs/api.json,config=openapi.yaml,openapiv3_bin=/tmp/protoc-gen-openapiv3,openapiv3_opt=enum_type=string,streaming_content_type=application/x-custom",
+            "output=docs/api.json,config=openapi.yaml,openapiv3_bin=/tmp/protoc-gen-openapiv3,openapiv3_opt=enum_type=string,streaming_content_type=application/x-custom,suppress_pkg_prefix=false",
         ))
         .unwrap();
 
@@ -191,6 +205,7 @@ mod tests {
         );
         assert_eq!(options.openapiv3_options, vec!["enum_type=string"]);
         assert_eq!(options.streaming_content_type, "application/x-custom");
+        assert!(!options.suppress_pkg_prefix);
     }
 
     #[test]
@@ -333,31 +348,97 @@ mod tests {
     }
 
     #[test]
-    fn adds_connect_error_default_response() {
+    fn suppresses_schema_package_prefixes_and_refs() {
         let mut document = json!({
             "openapi": "3.1.0",
             "info": { "title": "simple", "version": "1" },
             "paths": {
                 "/hello": {
                     "post": {
-                        "responses": { "200": { "description": "ok" } }
+                        "responses": {
+                            "200": {
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "$ref": "#/components/schemas/streaming.v1.Reply"
+                                        }
+                                    }
+                                },
+                                "description": "ok"
+                            }
+                        }
                     }
                 }
             },
-            "components": {}
+            "components": {
+                "schemas": {
+                    "streaming.v1.Request": { "type": "object" },
+                    "streaming.v1.Reply": {
+                        "type": "object",
+                        "properties": {
+                            "request": {
+                                "$ref": "#/components/schemas/streaming.v1.Request"
+                            }
+                        }
+                    }
+                }
+            }
         });
+        let ir = streaming_ir(false, false);
 
-        add_connect_error_response(&mut document).unwrap();
+        suppress_openapi_schema_package_prefixes_for_test(&mut document, &ir).unwrap();
 
         assert_eq!(
-            document["paths"]["/hello"]["post"]["responses"]["default"]["$ref"],
-            "#/components/responses/connect2axum.ConnectError"
+            document["paths"]["/hello"]["post"]["responses"]["200"]["content"]["application/json"]
+                ["schema"]["$ref"],
+            "#/components/schemas/Reply"
+        );
+        assert_eq!(
+            document["components"]["schemas"]["Reply"]["properties"]["request"]["$ref"],
+            "#/components/schemas/Request"
         );
         assert!(
             document["components"]["schemas"]
-                .get("connect2axum.ConnectError")
-                .is_some()
+                .get("streaming.v1.Reply")
+                .is_none()
         );
+    }
+
+    #[test]
+    fn rejects_suppressed_schema_name_collisions() {
+        let mut document = json!({
+            "openapi": "3.1.0",
+            "info": { "title": "simple", "version": "1" },
+            "paths": {},
+            "components": {
+                "schemas": {
+                    "one.v1.Reply": { "type": "object" },
+                    "two.v1.Reply": { "type": "object" }
+                }
+            }
+        });
+        let ir = DescriptorIr {
+            files: vec![
+                ProtoFile {
+                    name: "one.proto".into(),
+                    package: "one.v1".into(),
+                    messages: Vec::new(),
+                    services: Vec::new(),
+                },
+                ProtoFile {
+                    name: "two.proto".into(),
+                    package: "two.v1".into(),
+                    messages: Vec::new(),
+                    services: Vec::new(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let err =
+            suppress_openapi_schema_package_prefixes_for_test(&mut document, &ir).unwrap_err();
+
+        assert!(err.to_string().contains("Reply"));
     }
 
     #[test]
@@ -387,6 +468,7 @@ mod tests {
             &DescriptorIr::default(),
             "application/x-ndjson",
             &DocConfig::default(),
+            true,
         )
         .unwrap();
 
@@ -394,6 +476,12 @@ mod tests {
         assert!(document["paths"].get("/two").is_some());
         assert!(document["components"]["schemas"].get("One").is_some());
         assert!(document["components"]["schemas"].get("Two").is_some());
+        assert!(
+            document
+                .to_string()
+                .find("connect2axum.ConnectError")
+                .is_none()
+        );
     }
 
     fn child_file(

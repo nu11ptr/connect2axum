@@ -139,11 +139,11 @@ mod tests {
         assert!(document["channels"].get("/hello/unary/ws").is_none());
         assert!(
             document["operations"]
-                .get("streaming_v1_GreeterService_Chat_receive")
+                .get("GreeterService_Chat_receive")
                 .is_some()
         );
         assert_eq!(
-            document["operations"]["streaming_v1_GreeterService_Collect_receive"]["x-connect2axum-end-of-stream"]
+            document["operations"]["GreeterService_Collect_receive"]["x-connect2axum-end-of-stream"]
                 ["payload"],
             ""
         );

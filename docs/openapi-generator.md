@@ -12,7 +12,7 @@ connect2axum-specific behavior:
   header parameters;
 - generated REST DTO body schemas that grpc-gateway cannot see directly;
 - NDJSON content types for streaming REST endpoints;
-- default Connect-style error response components;
+- package-prefix suppression for schema components and references;
 - final OpenAPI v3.1 parsing through `oas3`.
 
 This keeps ProtoJSON-compatible schema behavior aligned with grpc-gateway while
@@ -41,9 +41,13 @@ Options are comma-separated `name=value` pairs.
 | `openapiv3_bin` | auto-detect | Path to grpc-gateway's `protoc-gen-openapiv3` binary. |
 | `openapiv3_opt` | none | Extra option forwarded to `protoc-gen-openapiv3`; may be repeated. |
 | `streaming_content_type` | `application/x-ndjson` | Fallback REST streaming content type. |
+| `suppress_pkg_prefix` | `true` | Omit protobuf package prefixes from schema component names and `$ref`s. |
 
 `disable_default_errors=true` is forwarded to `protoc-gen-openapiv3` unless an
 explicit `disable_default_errors=...` option is supplied via `openapiv3_opt`.
+When `suppress_pkg_prefix=true`, two schema names that shorten to the same
+component name are a fatal generation error. Set `suppress_pkg_prefix=false` to
+keep fully qualified protobuf names.
 
 Binary lookup order for `protoc-gen-openapiv3`:
 
@@ -84,8 +88,4 @@ headers:
       type: string
 
 streamingContentType: application/x-ndjson
-defaultErrorResponse: true
 ```
-
-`defaultErrorResponse` defaults to `true`. Set it to `false` if you want to
-manage default/error responses entirely yourself.

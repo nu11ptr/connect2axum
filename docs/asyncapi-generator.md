@@ -37,6 +37,11 @@ Options are comma-separated `name=value` pairs.
 | `config` | none | YAML config file for metadata, servers, and security schemes. |
 | `server_url` | none | Convenience URL used as the default AsyncAPI server. |
 | `default_content_type` | `application/json` | AsyncAPI `defaultContentType` and message content type. |
+| `suppress_pkg_prefix` | `true` | Omit protobuf package prefixes from component schema/message/operation names and references. |
+
+When `suppress_pkg_prefix=true`, component names that shorten to the same name
+are a fatal generation error. Set `suppress_pkg_prefix=false` to keep fully
+qualified protobuf names.
 
 ## Config File
 

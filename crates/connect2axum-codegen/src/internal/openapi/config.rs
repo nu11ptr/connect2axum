@@ -18,7 +18,6 @@ pub struct DocConfig {
     pub security: Option<Value>,
     pub headers: Vec<HeaderConfig>,
     pub streaming_content_type: Option<String>,
-    pub default_error_response: Option<bool>,
 }
 
 impl DocConfig {
@@ -54,10 +53,6 @@ impl DocConfig {
 
     pub fn streaming_content_type<'a>(&'a self, fallback: &'a str) -> &'a str {
         self.streaming_content_type.as_deref().unwrap_or(fallback)
-    }
-
-    pub fn add_default_error_response(&self) -> bool {
-        self.default_error_response.unwrap_or(true)
     }
 }
 

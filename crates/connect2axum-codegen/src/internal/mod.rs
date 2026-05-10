@@ -1,3 +1,4 @@
+pub mod api_names;
 pub mod asyncapi;
 pub mod guardrails;
 pub mod http;

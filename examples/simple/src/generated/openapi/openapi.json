@@ -1,45 +1,7 @@
 {
   "components": {
-    "responses": {
-      "connect2axum.ConnectError": {
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/connect2axum.ConnectError"
-            }
-          }
-        },
-        "description": "Connect error response."
-      }
-    },
     "schemas": {
-      "connect2axum.ConnectError": {
-        "description": "Connect error response.",
-        "properties": {
-          "code": {
-            "description": "Connect error code.",
-            "type": "string"
-          },
-          "details": {
-            "description": "Optional typed error details.",
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "message": {
-            "description": "Developer-facing error message.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "message"
-        ],
-        "type": "object"
-      },
-      "hello.v1.HelloReply": {
+      "HelloReply": {
         "description": "The response message containing the greeting.",
         "properties": {
           "message": {
@@ -117,14 +79,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/hello.v1.HelloReply"
+                  "$ref": "#/components/schemas/HelloReply"
                 }
               }
             },
             "description": "The response message containing the greeting."
-          },
-          "default": {
-            "$ref": "#/components/responses/connect2axum.ConnectError"
           }
         },
         "summary": "Sends a greeting.",

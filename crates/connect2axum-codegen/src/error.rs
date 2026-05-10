@@ -37,6 +37,8 @@ pub enum CodegenErrKind {
     DuplicateGeneratedIdentifier,
     /// Two generated handlers would register the same HTTP route.
     DuplicateRoute,
+    /// Short API document component names would collide.
+    ApiNameCollision,
 }
 
 impl UniKind for CodegenErrKind {
@@ -62,6 +64,7 @@ impl UniKind for CodegenErrKind {
                 Some("duplicate generated Rust identifier".into())
             }
             Self::DuplicateRoute => Some("duplicate generated route".into()),
+            Self::ApiNameCollision => Some("API document component name collision".into()),
         }
     }
 }

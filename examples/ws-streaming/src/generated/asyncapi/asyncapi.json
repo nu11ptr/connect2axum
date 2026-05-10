@@ -5,10 +5,10 @@
       "address": "/hello/chat/ws",
       "messages": {
         "request": {
-          "$ref": "#/components/messages/streaming.v1.GreeterService.Chat.request"
+          "$ref": "#/components/messages/GreeterService.Chat.request"
         },
         "response": {
-          "$ref": "#/components/messages/streaming.v1.GreeterService.Chat.response"
+          "$ref": "#/components/messages/GreeterService.Chat.response"
         }
       },
       "x-connect2axum-websocket": {
@@ -21,10 +21,10 @@
       "address": "/hello/collect/ws",
       "messages": {
         "request": {
-          "$ref": "#/components/messages/streaming.v1.GreeterService.Collect.request"
+          "$ref": "#/components/messages/GreeterService.Collect.request"
         },
         "response": {
-          "$ref": "#/components/messages/streaming.v1.GreeterService.Collect.response"
+          "$ref": "#/components/messages/GreeterService.Collect.response"
         }
       },
       "x-connect2axum-websocket": {
@@ -37,10 +37,10 @@
       "address": "/hello/expand/ws",
       "messages": {
         "request": {
-          "$ref": "#/components/messages/streaming.v1.GreeterService.Expand.request"
+          "$ref": "#/components/messages/GreeterService.Expand.request"
         },
         "response": {
-          "$ref": "#/components/messages/streaming.v1.GreeterService.Expand.response"
+          "$ref": "#/components/messages/GreeterService.Expand.response"
         }
       },
       "x-connect2axum-websocket": {
@@ -52,51 +52,51 @@
   },
   "components": {
     "messages": {
-      "streaming.v1.GreeterService.Chat.request": {
+      "GreeterService.Chat.request": {
         "contentType": "application/json",
-        "name": "streaming.v1.GreeterService.Chat.request",
+        "name": "GreeterService.Chat.request",
         "payload": {
-          "$ref": "#/components/schemas/streaming.v1.HelloRequest"
+          "$ref": "#/components/schemas/HelloRequest"
         }
       },
-      "streaming.v1.GreeterService.Chat.response": {
+      "GreeterService.Chat.response": {
         "contentType": "application/json",
-        "name": "streaming.v1.GreeterService.Chat.response",
+        "name": "GreeterService.Chat.response",
         "payload": {
-          "$ref": "#/components/schemas/streaming.v1.HelloReply"
+          "$ref": "#/components/schemas/HelloReply"
         }
       },
-      "streaming.v1.GreeterService.Collect.request": {
+      "GreeterService.Collect.request": {
         "contentType": "application/json",
-        "name": "streaming.v1.GreeterService.Collect.request",
+        "name": "GreeterService.Collect.request",
         "payload": {
-          "$ref": "#/components/schemas/streaming.v1.HelloRequest"
+          "$ref": "#/components/schemas/HelloRequest"
         }
       },
-      "streaming.v1.GreeterService.Collect.response": {
+      "GreeterService.Collect.response": {
         "contentType": "application/json",
-        "name": "streaming.v1.GreeterService.Collect.response",
+        "name": "GreeterService.Collect.response",
         "payload": {
-          "$ref": "#/components/schemas/streaming.v1.HelloSummary"
+          "$ref": "#/components/schemas/HelloSummary"
         }
       },
-      "streaming.v1.GreeterService.Expand.request": {
+      "GreeterService.Expand.request": {
         "contentType": "application/json",
-        "name": "streaming.v1.GreeterService.Expand.request",
+        "name": "GreeterService.Expand.request",
         "payload": {
-          "$ref": "#/components/schemas/streaming.v1.HelloRequest"
+          "$ref": "#/components/schemas/HelloRequest"
         }
       },
-      "streaming.v1.GreeterService.Expand.response": {
+      "GreeterService.Expand.response": {
         "contentType": "application/json",
-        "name": "streaming.v1.GreeterService.Expand.response",
+        "name": "GreeterService.Expand.response",
         "payload": {
-          "$ref": "#/components/schemas/streaming.v1.HelloReply"
+          "$ref": "#/components/schemas/HelloReply"
         }
       }
     },
     "schemas": {
-      "streaming.v1.HelloReply": {
+      "HelloReply": {
         "properties": {
           "message": {
             "type": "string"
@@ -104,7 +104,7 @@
         },
         "type": "object"
       },
-      "streaming.v1.HelloRequest": {
+      "HelloRequest": {
         "properties": {
           "firstName": {
             "type": "string"
@@ -115,7 +115,7 @@
         },
         "type": "object"
       },
-      "streaming.v1.HelloSummary": {
+      "HelloSummary": {
         "properties": {
           "names": {
             "items": {
@@ -135,7 +135,7 @@
     "version": "0.1.0"
   },
   "operations": {
-    "streaming_v1_GreeterService_Chat_receive": {
+    "GreeterService_Chat_receive": {
       "action": "receive",
       "channel": {
         "$ref": "#/channels/~1hello~1chat~1ws"
@@ -164,7 +164,7 @@
         "transport": "websocket"
       }
     },
-    "streaming_v1_GreeterService_Chat_send": {
+    "GreeterService_Chat_send": {
       "action": "send",
       "channel": {
         "$ref": "#/channels/~1hello~1chat~1ws"
@@ -188,7 +188,7 @@
         "transport": "websocket"
       }
     },
-    "streaming_v1_GreeterService_Collect_receive": {
+    "GreeterService_Collect_receive": {
       "action": "receive",
       "channel": {
         "$ref": "#/channels/~1hello~1collect~1ws"
@@ -217,7 +217,7 @@
         "transport": "websocket"
       }
     },
-    "streaming_v1_GreeterService_Collect_send": {
+    "GreeterService_Collect_send": {
       "action": "send",
       "channel": {
         "$ref": "#/channels/~1hello~1collect~1ws"
@@ -241,7 +241,7 @@
         "transport": "websocket"
       }
     },
-    "streaming_v1_GreeterService_Expand_receive": {
+    "GreeterService_Expand_receive": {
       "action": "receive",
       "channel": {
         "$ref": "#/channels/~1hello~1expand~1ws"
@@ -265,7 +265,7 @@
         "transport": "websocket"
       }
     },
-    "streaming_v1_GreeterService_Expand_send": {
+    "GreeterService_Expand_send": {
       "action": "send",
       "channel": {
         "$ref": "#/channels/~1hello~1expand~1ws"
