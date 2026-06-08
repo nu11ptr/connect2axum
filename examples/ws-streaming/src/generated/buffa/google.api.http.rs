@@ -48,6 +48,12 @@ impl ::buffa::DefaultInstance for Http {
         VALUE.get_or_init(|| ::buffa::alloc::boxed::Box::new(Self::default()))
     }
 }
+impl ::buffa::MessageName for Http {
+    const PACKAGE: &'static str = "google.api";
+    const NAME: &'static str = "Http";
+    const FULL_NAME: &'static str = "google.api.Http";
+    const TYPE_URL: &'static str = "type.googleapis.com/google.api.Http";
+}
 impl ::buffa::Message for Http {
     /// Returns the total encoded size in bytes.
     ///
@@ -234,6 +240,12 @@ impl ::buffa::DefaultInstance for HttpRule {
         static VALUE: ::buffa::__private::OnceBox<HttpRule> = ::buffa::__private::OnceBox::new();
         VALUE.get_or_init(|| ::buffa::alloc::boxed::Box::new(Self::default()))
     }
+}
+impl ::buffa::MessageName for HttpRule {
+    const PACKAGE: &'static str = "google.api";
+    const NAME: &'static str = "HttpRule";
+    const FULL_NAME: &'static str = "google.api.HttpRule";
+    const TYPE_URL: &'static str = "type.googleapis.com/google.api.HttpRule";
 }
 impl ::buffa::Message for HttpRule {
     /// Returns the total encoded size in bytes.
@@ -907,6 +919,12 @@ impl ::buffa::DefaultInstance for CustomHttpPattern {
         static VALUE: ::buffa::__private::OnceBox<CustomHttpPattern> = ::buffa::__private::OnceBox::new();
         VALUE.get_or_init(|| ::buffa::alloc::boxed::Box::new(Self::default()))
     }
+}
+impl ::buffa::MessageName for CustomHttpPattern {
+    const PACKAGE: &'static str = "google.api";
+    const NAME: &'static str = "CustomHttpPattern";
+    const FULL_NAME: &'static str = "google.api.CustomHttpPattern";
+    const TYPE_URL: &'static str = "type.googleapis.com/google.api.CustomHttpPattern";
 }
 impl ::buffa::Message for CustomHttpPattern {
     /// Returns the total encoded size in bytes.

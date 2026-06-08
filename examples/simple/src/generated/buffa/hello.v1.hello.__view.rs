@@ -184,6 +184,42 @@ impl<'a> ::buffa::ViewEncode<'a> for HelloRequestView<'a> {
         self.__buffa_unknown_fields.write_to(buf);
     }
 }
+/// Serializes this view as protobuf JSON.
+///
+/// Implicit-presence fields with default values are omitted, `required`
+/// fields are always emitted, explicit-presence (`optional`) fields are
+/// emitted only when set, bytes fields are base64-encoded, and enum
+/// values are their proto name strings.
+///
+/// This impl uses `serialize_map(None)` because the number of emitted
+/// fields depends on default-omission rules; serializers that require
+/// known map lengths (e.g. `bincode`) will return a runtime error.
+/// Use the owned message type for those formats.
+impl<'__a> ::serde::Serialize for HelloRequestView<'__a> {
+    fn serialize<__S: ::serde::Serializer>(
+        &self,
+        __s: __S,
+    ) -> ::core::result::Result<__S::Ok, __S::Error> {
+        use ::serde::ser::SerializeMap as _;
+        let mut __map = __s.serialize_map(::core::option::Option::None)?;
+        if !::buffa::json_helpers::skip_if::is_empty_str(self.salutation) {
+            __map.serialize_entry("salutation", self.salutation)?;
+        }
+        if !::buffa::json_helpers::skip_if::is_empty_str(self.first_name) {
+            __map.serialize_entry("firstName", self.first_name)?;
+        }
+        if !::buffa::json_helpers::skip_if::is_empty_str(self.last_name) {
+            __map.serialize_entry("lastName", self.last_name)?;
+        }
+        __map.end()
+    }
+}
+impl<'a> ::buffa::MessageName for HelloRequestView<'a> {
+    const PACKAGE: &'static str = "hello.v1";
+    const NAME: &'static str = "HelloRequest";
+    const FULL_NAME: &'static str = "hello.v1.HelloRequest";
+    const TYPE_URL: &'static str = "type.googleapis.com/hello.v1.HelloRequest";
+}
 impl<'v> ::buffa::DefaultViewInstance for HelloRequestView<'v> {
     fn default_view_instance<'a>() -> &'a Self
     where
@@ -332,6 +368,36 @@ impl<'a> ::buffa::ViewEncode<'a> for HelloReplyView<'a> {
         }
         self.__buffa_unknown_fields.write_to(buf);
     }
+}
+/// Serializes this view as protobuf JSON.
+///
+/// Implicit-presence fields with default values are omitted, `required`
+/// fields are always emitted, explicit-presence (`optional`) fields are
+/// emitted only when set, bytes fields are base64-encoded, and enum
+/// values are their proto name strings.
+///
+/// This impl uses `serialize_map(None)` because the number of emitted
+/// fields depends on default-omission rules; serializers that require
+/// known map lengths (e.g. `bincode`) will return a runtime error.
+/// Use the owned message type for those formats.
+impl<'__a> ::serde::Serialize for HelloReplyView<'__a> {
+    fn serialize<__S: ::serde::Serializer>(
+        &self,
+        __s: __S,
+    ) -> ::core::result::Result<__S::Ok, __S::Error> {
+        use ::serde::ser::SerializeMap as _;
+        let mut __map = __s.serialize_map(::core::option::Option::None)?;
+        if !::buffa::json_helpers::skip_if::is_empty_str(self.message) {
+            __map.serialize_entry("message", self.message)?;
+        }
+        __map.end()
+    }
+}
+impl<'a> ::buffa::MessageName for HelloReplyView<'a> {
+    const PACKAGE: &'static str = "hello.v1";
+    const NAME: &'static str = "HelloReply";
+    const FULL_NAME: &'static str = "hello.v1.HelloReply";
+    const TYPE_URL: &'static str = "type.googleapis.com/hello.v1.HelloReply";
 }
 impl<'v> ::buffa::DefaultViewInstance for HelloReplyView<'v> {
     fn default_view_instance<'a>() -> &'a Self

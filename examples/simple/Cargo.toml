@@ -12,7 +12,7 @@ default-features = false
 features = ["http1", "http2", "json", "query", "tokio"]
 
 [dependencies.buffa]
-version = "0.5"
+workspace = true
 features = ["json"]
 
 [dependencies.connect2axum]
@@ -22,8 +22,7 @@ path = "../../crates/connect2axum"
 path = "../../crates/connect2axum-scalar"
 
 [dependencies.connectrpc]
-version = "0.4"
-default-features = false
+workspace = true
 features = ["axum"]
 
 [dependencies.http]

@@ -18,13 +18,13 @@ repository = "https://github.com/nu11ptr/connect2axum"
 
 [workspace.dependencies]
 async-stream = "0.3"
-buffa = "0.5"
-buffa-codegen = "0.5"
+buffa = "0.6"
+buffa-codegen = "0.6"
 axum = { version = "0.8", default-features = false }
 axum-extra = { version = "0.12", default-features = false, features = ["json-lines"] }
 bytes = "1"
-connectrpc = { version = "0.4", default-features = false }
-connectrpc-codegen = "0.4"
+connectrpc = { version = "0.6", default-features = false }
+connectrpc-codegen = "0.6"
 flexstr = { version = "0.11", features = ["std", "str"] }
 futures-util = "0.3"
 heck = "0.5"

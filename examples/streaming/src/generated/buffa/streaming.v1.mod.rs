@@ -5,6 +5,7 @@ include!("streaming.v1.streaming.rs");
     non_camel_case_types,
     dead_code,
     unused_imports,
+    unused_qualifications,
     clippy::derivable_impls,
     clippy::match_single_binding,
     clippy::uninlined_format_args,
@@ -18,21 +19,6 @@ pub mod __buffa {
         #[allow(unused_imports)]
         use super::*;
         include!("streaming.v1.streaming.__view.rs");
-        pub mod oneof {
-            #[allow(unused_imports)]
-            use super::*;
-            include!("streaming.v1.streaming.__view_oneof.rs");
-        }
-    }
-    pub mod oneof {
-        #[allow(unused_imports)]
-        use super::*;
-        include!("streaming.v1.streaming.__oneof.rs");
-    }
-    pub mod ext {
-        #[allow(unused_imports)]
-        use super::*;
-        include!("streaming.v1.streaming.__ext.rs");
     }
     /// Register this package's `Any` type entries and extension entries.
     pub fn register_types(reg: &mut ::buffa::type_registry::TypeRegistry) {

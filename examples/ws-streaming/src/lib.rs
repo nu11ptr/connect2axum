@@ -1,3 +1,5 @@
+#![allow(refining_impl_trait)]
+
 use std::sync::Arc;
 
 use axum::Router;

@@ -28,6 +28,15 @@ for ::buffa::view::OwnedView<
 }
 /// Full service name for this service.
 pub const GREETER_SERVICE_SERVICE_NAME: &str = "hello.v1.GreeterService";
+/// Static [`Spec`](::connectrpc::Spec) for the server-side `SayHello` RPC.
+///
+/// The dispatcher surfaces this on
+/// [`RequestContext::spec`](::connectrpc::RequestContext::spec).
+pub const GREETER_SERVICE_SAY_HELLO_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::server(
+        "/hello.v1.GreeterService/SayHello",
+        ::connectrpc::StreamType::Unary,
+    )
+    .with_idempotency_level(::connectrpc::IdempotencyLevel::Unknown);
 /// The greeting service definition.
 ///
 /// # Implementing handlers
@@ -47,10 +56,22 @@ pub const GREETER_SERVICE_SERVICE_NAME: &str = "hello.v1.GreeterService";
 /// for zero-copy access patterns and when `to_owned_message()` is needed.
 ///
 /// The `impl Encodable<Out>` return bound accepts the owned `Out`, the
-/// generated `OutView<'_>` / `OwnedOutView`, or
-/// [`MaybeBorrowed`](::connectrpc::MaybeBorrowed). View bodies are not
-/// emitted for output types mapped via `extern_path` (the impl would be
-/// an orphan); return owned for WKT/extern outputs.
+/// generated `OutView<'_>` / `OwnedOutView`,
+/// [`MaybeBorrowed`](::connectrpc::MaybeBorrowed), or
+/// [`PreEncoded`](::connectrpc::PreEncoded) for handlers that encode a
+/// non-`'static` view internally and pass the bytes across the handler
+/// boundary. View bodies are not emitted for output types mapped via
+/// `extern_path` (the impl would be an orphan); return owned for
+/// WKT/extern outputs.
+///
+/// Server-streaming and bidi-streaming methods return
+/// `ServiceStream<impl Encodable<Out> + Send + use<Self>>`. The
+/// `use<Self>` precise-capturing clause excludes `&self`'s lifetime
+/// (unary methods use `use<'a, Self>` and may borrow), so stream items
+/// must be `'static`. To stream view-encoded data, encode each item
+/// inside the stream body and yield
+/// [`PreEncoded`](::connectrpc::PreEncoded) — see its `# Streaming
+/// example` doc.
 #[allow(clippy::type_complexity)]
 pub trait GreeterService: Send + Sync + 'static {
     /// Sends a greeting.
@@ -111,6 +132,7 @@ impl<S: GreeterService> GreeterServiceExt for S {
                     })
                 },
             )
+            .with_spec(GREETER_SERVICE_SAY_HELLO_SPEC)
     }
 }
 /// Monomorphic dispatcher for `GreeterService`.
@@ -157,7 +179,10 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
         let method = path.strip_prefix("hello.v1.GreeterService/")?;
         match method {
             "SayHello" => {
-                Some(::connectrpc::dispatcher::codegen::MethodDescriptor::unary(false))
+                Some(
+                    ::connectrpc::dispatcher::codegen::MethodDescriptor::unary(false)
+                        .with_spec(GREETER_SERVICE_SAY_HELLO_SPEC),
+                )
             }
             _ => None,
         }
@@ -166,7 +191,7 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
         &self,
         path: &str,
         ctx: ::connectrpc::RequestContext,
-        request: ::buffa::bytes::Bytes,
+        request: ::connectrpc::Payload,
         format: ::connectrpc::CodecFormat,
     ) -> ::connectrpc::dispatcher::codegen::UnaryResult {
         let Some(method) = path.strip_prefix("hello.v1.GreeterService/") else {
@@ -179,7 +204,7 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
                 Box::pin(async move {
                     let req = ::connectrpc::dispatcher::codegen::decode_request_view::<
                         crate::proto::hello::v1::__buffa::view::HelloRequestView,
-                    >(request, format)?;
+                    >(request.encoded()?, format)?;
                     svc.say_hello(ctx, req)
                         .await?
                         .encode::<crate::proto::hello::v1::HelloReply>(format)
@@ -249,7 +274,7 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
 ///
 /// let uri: http::Uri = "http://localhost:8080".parse()?;
 /// let conn = Http2Connection::connect_plaintext(uri.clone()).await?.shared(1024);
-/// let config = ClientConfig::new(uri).protocol(Protocol::Grpc);
+/// let config = ClientConfig::new(uri).with_protocol(Protocol::Grpc);
 ///
 /// let client = GreeterServiceClient::new(conn, config);
 /// let response = client.say_hello(request).await?;

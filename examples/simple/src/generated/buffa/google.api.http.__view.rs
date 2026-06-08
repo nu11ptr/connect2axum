@@ -172,6 +172,43 @@ impl<'a> ::buffa::ViewEncode<'a> for HttpView<'a> {
         self.__buffa_unknown_fields.write_to(buf);
     }
 }
+/// Serializes this view as protobuf JSON.
+///
+/// Implicit-presence fields with default values are omitted, `required`
+/// fields are always emitted, explicit-presence (`optional`) fields are
+/// emitted only when set, bytes fields are base64-encoded, and enum
+/// values are their proto name strings.
+///
+/// This impl uses `serialize_map(None)` because the number of emitted
+/// fields depends on default-omission rules; serializers that require
+/// known map lengths (e.g. `bincode`) will return a runtime error.
+/// Use the owned message type for those formats.
+impl<'__a> ::serde::Serialize for HttpView<'__a> {
+    fn serialize<__S: ::serde::Serializer>(
+        &self,
+        __s: __S,
+    ) -> ::core::result::Result<__S::Ok, __S::Error> {
+        use ::serde::ser::SerializeMap as _;
+        let mut __map = __s.serialize_map(::core::option::Option::None)?;
+        if !self.rules.is_empty() {
+            __map.serialize_entry("rules", &*self.rules)?;
+        }
+        if self.fully_decode_reserved_expansion {
+            __map
+                .serialize_entry(
+                    "fullyDecodeReservedExpansion",
+                    &self.fully_decode_reserved_expansion,
+                )?;
+        }
+        __map.end()
+    }
+}
+impl<'a> ::buffa::MessageName for HttpView<'a> {
+    const PACKAGE: &'static str = "google.api";
+    const NAME: &'static str = "Http";
+    const FULL_NAME: &'static str = "google.api.Http";
+    const TYPE_URL: &'static str = "type.googleapis.com/google.api.Http";
+}
 impl<'v> ::buffa::DefaultViewInstance for HttpView<'v> {
     fn default_view_instance<'a>() -> &'a Self
     where
@@ -633,6 +670,67 @@ impl<'a> ::buffa::ViewEncode<'a> for HttpRuleView<'a> {
         self.__buffa_unknown_fields.write_to(buf);
     }
 }
+/// Serializes this view as protobuf JSON.
+///
+/// Implicit-presence fields with default values are omitted, `required`
+/// fields are always emitted, explicit-presence (`optional`) fields are
+/// emitted only when set, bytes fields are base64-encoded, and enum
+/// values are their proto name strings.
+///
+/// This impl uses `serialize_map(None)` because the number of emitted
+/// fields depends on default-omission rules; serializers that require
+/// known map lengths (e.g. `bincode`) will return a runtime error.
+/// Use the owned message type for those formats.
+impl<'__a> ::serde::Serialize for HttpRuleView<'__a> {
+    fn serialize<__S: ::serde::Serializer>(
+        &self,
+        __s: __S,
+    ) -> ::core::result::Result<__S::Ok, __S::Error> {
+        use ::serde::ser::SerializeMap as _;
+        let mut __map = __s.serialize_map(::core::option::Option::None)?;
+        if !::buffa::json_helpers::skip_if::is_empty_str(self.selector) {
+            __map.serialize_entry("selector", self.selector)?;
+        }
+        if !::buffa::json_helpers::skip_if::is_empty_str(self.body) {
+            __map.serialize_entry("body", self.body)?;
+        }
+        if !::buffa::json_helpers::skip_if::is_empty_str(self.response_body) {
+            __map.serialize_entry("responseBody", self.response_body)?;
+        }
+        if !self.additional_bindings.is_empty() {
+            __map.serialize_entry("additionalBindings", &*self.additional_bindings)?;
+        }
+        if let ::core::option::Option::Some(ref __ov) = self.pattern {
+            match __ov {
+                super::super::__buffa::view::oneof::http_rule::Pattern::Get(v) => {
+                    __map.serialize_entry("get", v)?;
+                }
+                super::super::__buffa::view::oneof::http_rule::Pattern::Put(v) => {
+                    __map.serialize_entry("put", v)?;
+                }
+                super::super::__buffa::view::oneof::http_rule::Pattern::Post(v) => {
+                    __map.serialize_entry("post", v)?;
+                }
+                super::super::__buffa::view::oneof::http_rule::Pattern::Delete(v) => {
+                    __map.serialize_entry("delete", v)?;
+                }
+                super::super::__buffa::view::oneof::http_rule::Pattern::Patch(v) => {
+                    __map.serialize_entry("patch", v)?;
+                }
+                super::super::__buffa::view::oneof::http_rule::Pattern::Custom(v) => {
+                    __map.serialize_entry("custom", v)?;
+                }
+            }
+        }
+        __map.end()
+    }
+}
+impl<'a> ::buffa::MessageName for HttpRuleView<'a> {
+    const PACKAGE: &'static str = "google.api";
+    const NAME: &'static str = "HttpRule";
+    const FULL_NAME: &'static str = "google.api.HttpRule";
+    const TYPE_URL: &'static str = "type.googleapis.com/google.api.HttpRule";
+}
 impl<'v> ::buffa::DefaultViewInstance for HttpRuleView<'v> {
     fn default_view_instance<'a>() -> &'a Self
     where
@@ -802,6 +900,39 @@ impl<'a> ::buffa::ViewEncode<'a> for CustomHttpPatternView<'a> {
         }
         self.__buffa_unknown_fields.write_to(buf);
     }
+}
+/// Serializes this view as protobuf JSON.
+///
+/// Implicit-presence fields with default values are omitted, `required`
+/// fields are always emitted, explicit-presence (`optional`) fields are
+/// emitted only when set, bytes fields are base64-encoded, and enum
+/// values are their proto name strings.
+///
+/// This impl uses `serialize_map(None)` because the number of emitted
+/// fields depends on default-omission rules; serializers that require
+/// known map lengths (e.g. `bincode`) will return a runtime error.
+/// Use the owned message type for those formats.
+impl<'__a> ::serde::Serialize for CustomHttpPatternView<'__a> {
+    fn serialize<__S: ::serde::Serializer>(
+        &self,
+        __s: __S,
+    ) -> ::core::result::Result<__S::Ok, __S::Error> {
+        use ::serde::ser::SerializeMap as _;
+        let mut __map = __s.serialize_map(::core::option::Option::None)?;
+        if !::buffa::json_helpers::skip_if::is_empty_str(self.kind) {
+            __map.serialize_entry("kind", self.kind)?;
+        }
+        if !::buffa::json_helpers::skip_if::is_empty_str(self.path) {
+            __map.serialize_entry("path", self.path)?;
+        }
+        __map.end()
+    }
+}
+impl<'a> ::buffa::MessageName for CustomHttpPatternView<'a> {
+    const PACKAGE: &'static str = "google.api";
+    const NAME: &'static str = "CustomHttpPattern";
+    const FULL_NAME: &'static str = "google.api.CustomHttpPattern";
+    const TYPE_URL: &'static str = "type.googleapis.com/google.api.CustomHttpPattern";
 }
 impl<'v> ::buffa::DefaultViewInstance for CustomHttpPatternView<'v> {
     fn default_view_instance<'a>() -> &'a Self

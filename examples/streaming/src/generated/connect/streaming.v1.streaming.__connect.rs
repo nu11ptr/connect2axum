@@ -52,6 +52,33 @@ for ::buffa::view::OwnedView<
 }
 /// Full service name for this service.
 pub const GREETER_SERVICE_SERVICE_NAME: &str = "streaming.v1.GreeterService";
+/// Static [`Spec`](::connectrpc::Spec) for the server-side `Expand` RPC.
+///
+/// The dispatcher surfaces this on
+/// [`RequestContext::spec`](::connectrpc::RequestContext::spec).
+pub const GREETER_SERVICE_EXPAND_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::server(
+        "/streaming.v1.GreeterService/Expand",
+        ::connectrpc::StreamType::ServerStream,
+    )
+    .with_idempotency_level(::connectrpc::IdempotencyLevel::Unknown);
+/// Static [`Spec`](::connectrpc::Spec) for the server-side `Collect` RPC.
+///
+/// The dispatcher surfaces this on
+/// [`RequestContext::spec`](::connectrpc::RequestContext::spec).
+pub const GREETER_SERVICE_COLLECT_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::server(
+        "/streaming.v1.GreeterService/Collect",
+        ::connectrpc::StreamType::ClientStream,
+    )
+    .with_idempotency_level(::connectrpc::IdempotencyLevel::Unknown);
+/// Static [`Spec`](::connectrpc::Spec) for the server-side `Chat` RPC.
+///
+/// The dispatcher surfaces this on
+/// [`RequestContext::spec`](::connectrpc::RequestContext::spec).
+pub const GREETER_SERVICE_CHAT_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::server(
+        "/streaming.v1.GreeterService/Chat",
+        ::connectrpc::StreamType::BidiStream,
+    )
+    .with_idempotency_level(::connectrpc::IdempotencyLevel::Unknown);
 /// Server trait for GreeterService.
 ///
 /// # Implementing handlers
@@ -71,10 +98,22 @@ pub const GREETER_SERVICE_SERVICE_NAME: &str = "streaming.v1.GreeterService";
 /// for zero-copy access patterns and when `to_owned_message()` is needed.
 ///
 /// The `impl Encodable<Out>` return bound accepts the owned `Out`, the
-/// generated `OutView<'_>` / `OwnedOutView`, or
-/// [`MaybeBorrowed`](::connectrpc::MaybeBorrowed). View bodies are not
-/// emitted for output types mapped via `extern_path` (the impl would be
-/// an orphan); return owned for WKT/extern outputs.
+/// generated `OutView<'_>` / `OwnedOutView`,
+/// [`MaybeBorrowed`](::connectrpc::MaybeBorrowed), or
+/// [`PreEncoded`](::connectrpc::PreEncoded) for handlers that encode a
+/// non-`'static` view internally and pass the bytes across the handler
+/// boundary. View bodies are not emitted for output types mapped via
+/// `extern_path` (the impl would be an orphan); return owned for
+/// WKT/extern outputs.
+///
+/// Server-streaming and bidi-streaming methods return
+/// `ServiceStream<impl Encodable<Out> + Send + use<Self>>`. The
+/// `use<Self>` precise-capturing clause excludes `&self`'s lifetime
+/// (unary methods use `use<'a, Self>` and may borrow), so stream items
+/// must be `'static`. To stream view-encoded data, encode each item
+/// inside the stream body and yield
+/// [`PreEncoded`](::connectrpc::PreEncoded) — see its `# Streaming
+/// example` doc.
 #[allow(clippy::type_complexity)]
 pub trait GreeterService: Send + Sync + 'static {
     /// Handle the Expand RPC.
@@ -84,7 +123,11 @@ pub trait GreeterService: Send + Sync + 'static {
         request: OwnedHelloRequestView,
     ) -> impl ::std::future::Future<
         Output = ::connectrpc::ServiceResult<
-            ::connectrpc::ServiceStream<crate::proto::streaming::v1::HelloReply>,
+            ::connectrpc::ServiceStream<
+                impl ::connectrpc::Encodable<
+                    crate::proto::streaming::v1::HelloReply,
+                > + Send + use<Self>,
+            >,
         >,
     > + Send;
     /// Handle the Collect RPC.
@@ -108,7 +151,11 @@ pub trait GreeterService: Send + Sync + 'static {
         requests: ::connectrpc::ServiceStream<OwnedHelloRequestView>,
     ) -> impl ::std::future::Future<
         Output = ::connectrpc::ServiceResult<
-            ::connectrpc::ServiceStream<crate::proto::streaming::v1::HelloReply>,
+            ::connectrpc::ServiceStream<
+                impl ::connectrpc::Encodable<
+                    crate::proto::streaming::v1::HelloReply,
+                > + Send + use<Self>,
+            >,
         >,
     > + Send;
 }
@@ -140,7 +187,11 @@ impl<S: GreeterService> GreeterServiceExt for S {
         router: ::connectrpc::Router,
     ) -> ::connectrpc::Router {
         router
-            .route_view_server_stream(
+            .route_view_server_stream::<
+                _,
+                _,
+                crate::proto::streaming::v1::HelloReply,
+            >(
                 GREETER_SERVICE_SERVICE_NAME,
                 "Expand",
                 ::connectrpc::view_streaming_handler_fn({
@@ -151,6 +202,7 @@ impl<S: GreeterService> GreeterServiceExt for S {
                     }
                 }),
             )
+            .with_spec(GREETER_SERVICE_EXPAND_SPEC)
             .route_view_client_stream(
                 GREETER_SERVICE_SERVICE_NAME,
                 "Collect",
@@ -166,7 +218,12 @@ impl<S: GreeterService> GreeterServiceExt for S {
                     }
                 }),
             )
-            .route_view_bidi_stream(
+            .with_spec(GREETER_SERVICE_COLLECT_SPEC)
+            .route_view_bidi_stream::<
+                _,
+                _,
+                crate::proto::streaming::v1::HelloReply,
+            >(
                 GREETER_SERVICE_SERVICE_NAME,
                 "Chat",
                 ::connectrpc::view_bidi_streaming_handler_fn({
@@ -177,6 +234,7 @@ impl<S: GreeterService> GreeterServiceExt for S {
                     }
                 }),
             )
+            .with_spec(GREETER_SERVICE_CHAT_SPEC)
     }
 }
 /// Monomorphic dispatcher for `GreeterService`.
@@ -224,17 +282,20 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
         match method {
             "Expand" => {
                 Some(
-                    ::connectrpc::dispatcher::codegen::MethodDescriptor::server_streaming(),
+                    ::connectrpc::dispatcher::codegen::MethodDescriptor::server_streaming()
+                        .with_spec(GREETER_SERVICE_EXPAND_SPEC),
                 )
             }
             "Collect" => {
                 Some(
-                    ::connectrpc::dispatcher::codegen::MethodDescriptor::client_streaming(),
+                    ::connectrpc::dispatcher::codegen::MethodDescriptor::client_streaming()
+                        .with_spec(GREETER_SERVICE_COLLECT_SPEC),
                 )
             }
             "Chat" => {
                 Some(
-                    ::connectrpc::dispatcher::codegen::MethodDescriptor::bidi_streaming(),
+                    ::connectrpc::dispatcher::codegen::MethodDescriptor::bidi_streaming()
+                        .with_spec(GREETER_SERVICE_CHAT_SPEC),
                 )
             }
             _ => None,
@@ -244,7 +305,7 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
         &self,
         path: &str,
         ctx: ::connectrpc::RequestContext,
-        request: ::buffa::bytes::Bytes,
+        request: ::connectrpc::Payload,
         format: ::connectrpc::CodecFormat,
     ) -> ::connectrpc::dispatcher::codegen::UnaryResult {
         let Some(method) = path.strip_prefix("streaming.v1.GreeterService/") else {
@@ -276,10 +337,11 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
                     let resp = svc.expand(ctx, req).await?;
                     Ok(
                         resp
-                            .map_body(|s| ::connectrpc::dispatcher::codegen::encode_response_stream(
-                                s,
-                                format,
-                            )),
+                            .map_body(|s| ::connectrpc::dispatcher::codegen::encode_response_stream::<
+                                crate::proto::streaming::v1::HelloReply,
+                                _,
+                                _,
+                            >(s, format)),
                     )
                 })
             }
@@ -333,10 +395,11 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
                     let resp = svc.chat(ctx, req_stream).await?;
                     Ok(
                         resp
-                            .map_body(|s| ::connectrpc::dispatcher::codegen::encode_response_stream(
-                                s,
-                                format,
-                            )),
+                            .map_body(|s| ::connectrpc::dispatcher::codegen::encode_response_stream::<
+                                crate::proto::streaming::v1::HelloReply,
+                                _,
+                                _,
+                            >(s, format)),
                     )
                 })
             }
@@ -359,7 +422,7 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
 ///
 /// let uri: http::Uri = "http://localhost:8080".parse()?;
 /// let conn = Http2Connection::connect_plaintext(uri.clone()).await?.shared(1024);
-/// let config = ClientConfig::new(uri).protocol(Protocol::Grpc);
+/// let config = ClientConfig::new(uri).with_protocol(Protocol::Grpc);
 ///
 /// let client = GreeterServiceClient::new(conn, config);
 /// let response = client.expand(request).await?;

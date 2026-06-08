@@ -72,13 +72,13 @@ where
 }
 
 /// Wraps a response body so JSON encoding can fall back through the Buffa owned
-/// message when the inner body is a view.
+/// message when the inner body's ConnectRPC encoder cannot produce JSON.
 ///
-/// ConnectRPC-generated view response bodies support protobuf encoding, but
-/// return `Unimplemented` for JSON because Buffa views are protobuf-wire views,
-/// not serde values. This wrapper keeps protobuf output direct and handles JSON
-/// by encoding protobuf, decoding the owned output message, then serializing
-/// that owned message with Buffa's ProtoJSON serde implementation.
+/// Buffa 0.6 generates ProtoJSON `Serialize` impls for views, but ConnectRPC's
+/// generated `Encodable` impl for views still returns `Unimplemented` for JSON.
+/// This wrapper keeps protobuf output direct and handles JSON by encoding
+/// protobuf, decoding the owned output message, then serializing that owned
+/// message with Buffa's ProtoJSON serde implementation.
 #[derive(Clone, Debug)]
 pub struct JsonCompatibleView<B> {
     body: B,
@@ -107,7 +107,8 @@ where
 ///
 /// The response body is encoded through ConnectRPC's own [`Encodable`] contract
 /// with [`CodecFormat::Json`] first. If the body is a view that only supports
-/// protobuf, REST JSON falls back through the Buffa owned output message.
+/// protobuf through that contract, REST JSON falls back through the Buffa owned
+/// output message.
 pub fn service_response<M, B>(response: ServiceResult<B>) -> http::Response<Body>
 where
     M: Message + Serialize,
@@ -244,7 +245,7 @@ mod tests {
         let ctx = request_context(headers, extensions);
 
         assert_eq!(ctx.header("x-request-id").unwrap(), "abc");
-        assert_eq!(ctx.extensions.get::<RequestId>(), Some(&RequestId(7)));
+        assert_eq!(ctx.extensions().get::<RequestId>(), Some(&RequestId(7)));
     }
 
     #[test]

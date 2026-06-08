@@ -5,6 +5,7 @@ include!("hello.v1.hello.rs");
     non_camel_case_types,
     dead_code,
     unused_imports,
+    unused_qualifications,
     clippy::derivable_impls,
     clippy::match_single_binding,
     clippy::uninlined_format_args,
@@ -18,21 +19,6 @@ pub mod __buffa {
         #[allow(unused_imports)]
         use super::*;
         include!("hello.v1.hello.__view.rs");
-        pub mod oneof {
-            #[allow(unused_imports)]
-            use super::*;
-            include!("hello.v1.hello.__view_oneof.rs");
-        }
-    }
-    pub mod oneof {
-        #[allow(unused_imports)]
-        use super::*;
-        include!("hello.v1.hello.__oneof.rs");
-    }
-    pub mod ext {
-        #[allow(unused_imports)]
-        use super::*;
-        include!("hello.v1.hello.__ext.rs");
     }
     /// Register this package's `Any` type entries and extension entries.
     pub fn register_types(reg: &mut ::buffa::type_registry::TypeRegistry) {

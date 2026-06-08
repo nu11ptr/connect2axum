@@ -46,6 +46,12 @@ impl ::buffa::DefaultInstance for HelloRequest {
         VALUE.get_or_init(|| ::buffa::alloc::boxed::Box::new(Self::default()))
     }
 }
+impl ::buffa::MessageName for HelloRequest {
+    const PACKAGE: &'static str = "streaming.v1";
+    const NAME: &'static str = "HelloRequest";
+    const FULL_NAME: &'static str = "streaming.v1.HelloRequest";
+    const TYPE_URL: &'static str = "type.googleapis.com/streaming.v1.HelloRequest";
+}
 impl ::buffa::Message for HelloRequest {
     /// Returns the total encoded size in bytes.
     ///
@@ -197,6 +203,12 @@ impl ::buffa::DefaultInstance for HelloReply {
         VALUE.get_or_init(|| ::buffa::alloc::boxed::Box::new(Self::default()))
     }
 }
+impl ::buffa::MessageName for HelloReply {
+    const PACKAGE: &'static str = "streaming.v1";
+    const NAME: &'static str = "HelloReply";
+    const FULL_NAME: &'static str = "streaming.v1.HelloReply";
+    const TYPE_URL: &'static str = "type.googleapis.com/streaming.v1.HelloReply";
+}
 impl ::buffa::Message for HelloReply {
     /// Returns the total encoded size in bytes.
     ///
@@ -325,6 +337,12 @@ impl ::buffa::DefaultInstance for HelloSummary {
         static VALUE: ::buffa::__private::OnceBox<HelloSummary> = ::buffa::__private::OnceBox::new();
         VALUE.get_or_init(|| ::buffa::alloc::boxed::Box::new(Self::default()))
     }
+}
+impl ::buffa::MessageName for HelloSummary {
+    const PACKAGE: &'static str = "streaming.v1";
+    const NAME: &'static str = "HelloSummary";
+    const FULL_NAME: &'static str = "streaming.v1.HelloSummary";
+    const TYPE_URL: &'static str = "type.googleapis.com/streaming.v1.HelloSummary";
 }
 impl ::buffa::Message for HelloSummary {
     /// Returns the total encoded size in bytes.

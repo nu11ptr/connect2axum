@@ -33,22 +33,22 @@ pub mod http_rule {
             use serde::ser::SerializeMap;
             let mut map = s.serialize_map(Some(1))?;
             match self {
-                Pattern::Get(v) => {
+                Self::Get(v) => {
                     map.serialize_entry("get", v)?;
                 }
-                Pattern::Put(v) => {
+                Self::Put(v) => {
                     map.serialize_entry("put", v)?;
                 }
-                Pattern::Post(v) => {
+                Self::Post(v) => {
                     map.serialize_entry("post", v)?;
                 }
-                Pattern::Delete(v) => {
+                Self::Delete(v) => {
                     map.serialize_entry("delete", v)?;
                 }
-                Pattern::Patch(v) => {
+                Self::Patch(v) => {
                     map.serialize_entry("patch", v)?;
                 }
-                Pattern::Custom(v) => {
+                Self::Custom(v) => {
                     map.serialize_entry("custom", v)?;
                 }
             }

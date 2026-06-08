@@ -40,6 +40,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-trait"
+version = "0.1.89"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -139,9 +150,9 @@ dependencies = [
 
 [[package]]
 name = "buffa"
-version = "0.5.2"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7a22fed63b429c4928fd5ed18dcacd3a98d0df1f06cd7cf651b2bbf3dbf0500"
+checksum = "941c714734a660caa93a210c531dec553cc0ef417890409914d24032c94ab840"
 dependencies = [
  "base64",
  "bytes",
@@ -154,9 +165,9 @@ dependencies = [
 
 [[package]]
 name = "buffa-codegen"
-version = "0.5.2"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd9774d97c281d07a61006775c675940371c170ae1b454de0e9c013e0acd19f6"
+checksum = "693ea91be01336fb0084b2e7bb071be7393224c72f737c846471e4013e58c327"
 dependencies = [
  "buffa",
  "buffa-descriptor",
@@ -169,11 +180,13 @@ dependencies = [
 
 [[package]]
 name = "buffa-descriptor"
-version = "0.5.2"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7b942f9242ea5a79c92486460073a0a36cccc314e69fbc2ff08f55467c47b37"
+checksum = "ad8df83adfcb525621f5a96c88e610f90aff1112ec57522d9b48a943df327394"
 dependencies = [
  "buffa",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -246,10 +259,11 @@ dependencies = [
 
 [[package]]
 name = "connectrpc"
-version = "0.4.2"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55cb80f9eb09b593a96880eb1c2588ac6319b129519de8c672f9b8b4ffdeaece"
+checksum = "1da5e4adde184f69e64ef112c6f8b645afe9ff82466761f8fc348dbd36aaee7e"
 dependencies = [
+ "async-trait",
  "axum",
  "base64",
  "buffa",
@@ -272,9 +286,9 @@ dependencies = [
 
 [[package]]
 name = "connectrpc-codegen"
-version = "0.4.2"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77590b8d66a279f1741bc56bd358f82ce57f26f5a9576fbb8329bce30ea1e96e"
+checksum = "20923a890d45f23df73ad0af5d40b0a0784e7c43993d78a9264a1a1d03983a66"
 dependencies = [
  "anyhow",
  "buffa",
