@@ -11,6 +11,9 @@ use crate::internal::{asyncapi, openapi, rest, ws};
 pub use connectrpc_codegen::plugin::{CodeGeneratorRequest, CodeGeneratorResponse};
 pub use error::{CodegenErrKind, CodegenResult};
 
+/// `google.protobuf.compiler.CodeGeneratorResponse.Feature.FEATURE_PROTO3_OPTIONAL`.
+const FEATURE_PROTO3_OPTIONAL: u64 = 1;
+
 /// Generate a REST protoc plugin response for a request.
 ///
 /// Errors are returned through the protoc plugin error field so `buf generate`
@@ -19,10 +22,7 @@ pub use error::{CodegenErrKind, CodegenResult};
 pub fn generate_rest(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
     match try_generate_rest(request) {
         Ok(response) => response,
-        Err(err) => CodeGeneratorResponse {
-            error: Some(err.to_string()),
-            ..Default::default()
-        },
+        Err(err) => plugin_error_response(err.to_string()),
     }
 }
 
@@ -39,10 +39,10 @@ pub fn try_generate_rest(request: &CodeGeneratorRequest) -> CodegenResult<CodeGe
         .flatten()
         .collect();
 
-    Ok(CodeGeneratorResponse {
+    Ok(with_supported_features(CodeGeneratorResponse {
         file: files,
         ..Default::default()
-    })
+    }))
 }
 
 /// Generate a WebSocket protoc plugin response for a request.
@@ -53,10 +53,7 @@ pub fn try_generate_rest(request: &CodeGeneratorRequest) -> CodegenResult<CodeGe
 pub fn generate_ws(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
     match try_generate_ws(request) {
         Ok(response) => response,
-        Err(err) => CodeGeneratorResponse {
-            error: Some(err.to_string()),
-            ..Default::default()
-        },
+        Err(err) => plugin_error_response(err.to_string()),
     }
 }
 
@@ -73,10 +70,10 @@ pub fn try_generate_ws(request: &CodeGeneratorRequest) -> CodegenResult<CodeGene
         .flatten()
         .collect();
 
-    Ok(CodeGeneratorResponse {
+    Ok(with_supported_features(CodeGeneratorResponse {
         file: files,
         ..Default::default()
-    })
+    }))
 }
 
 /// Generate a merged OpenAPI v3.1 protoc plugin response for a request.
@@ -88,10 +85,7 @@ pub fn try_generate_ws(request: &CodeGeneratorRequest) -> CodegenResult<CodeGene
 pub fn generate_openapi(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
     match try_generate_openapi(request) {
         Ok(response) => response,
-        Err(err) => CodeGeneratorResponse {
-            error: Some(err.to_string()),
-            ..Default::default()
-        },
+        Err(err) => plugin_error_response(err.to_string()),
     }
 }
 
@@ -100,7 +94,7 @@ pub fn generate_openapi(request: &CodeGeneratorRequest) -> CodeGeneratorResponse
 pub fn try_generate_openapi(
     request: &CodeGeneratorRequest,
 ) -> CodegenResult<CodeGeneratorResponse> {
-    openapi::generate(request)
+    openapi::generate(request).map(with_supported_features)
 }
 
 /// Generate an AsyncAPI v3.1 protoc plugin response for generated WebSocket
@@ -112,10 +106,7 @@ pub fn try_generate_openapi(
 pub fn generate_asyncapi(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
     match try_generate_asyncapi(request) {
         Ok(response) => response,
-        Err(err) => CodeGeneratorResponse {
-            error: Some(err.to_string()),
-            ..Default::default()
-        },
+        Err(err) => plugin_error_response(err.to_string()),
     }
 }
 
@@ -124,7 +115,20 @@ pub fn generate_asyncapi(request: &CodeGeneratorRequest) -> CodeGeneratorRespons
 pub fn try_generate_asyncapi(
     request: &CodeGeneratorRequest,
 ) -> CodegenResult<CodeGeneratorResponse> {
-    asyncapi::generate(request)
+    asyncapi::generate(request).map(with_supported_features)
+}
+
+fn plugin_error_response(error: String) -> CodeGeneratorResponse {
+    with_supported_features(CodeGeneratorResponse {
+        error: Some(error),
+        ..Default::default()
+    })
+}
+
+fn with_supported_features(mut response: CodeGeneratorResponse) -> CodeGeneratorResponse {
+    response.supported_features =
+        Some(response.supported_features.unwrap_or_default() | FEATURE_PROTO3_OPTIONAL);
+    response
 }
 
 #[cfg(test)]
@@ -138,7 +142,10 @@ mod tests {
         field_descriptor_proto::{Label, Type},
     };
 
-    use super::{CodeGeneratorRequest, CodeGeneratorResponse, generate_rest, try_generate_rest};
+    use super::{
+        CodeGeneratorRequest, CodeGeneratorResponse, FEATURE_PROTO3_OPTIONAL, generate_asyncapi,
+        generate_openapi, generate_rest, generate_ws, try_generate_rest,
+    };
 
     #[test]
     fn empty_request_generates_empty_response() {
@@ -148,6 +155,23 @@ mod tests {
 
         assert!(response.file.is_empty());
         assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn generators_advertise_proto3_optional_support() {
+        let request = CodeGeneratorRequest::default();
+
+        for response in [
+            generate_rest(&request),
+            generate_ws(&request),
+            generate_openapi(&request),
+            generate_asyncapi(&request),
+        ] {
+            assert_eq!(
+                response.supported_features.unwrap_or_default() & FEATURE_PROTO3_OPTIONAL,
+                FEATURE_PROTO3_OPTIONAL
+            );
+        }
     }
 
     #[test]
@@ -165,6 +189,10 @@ mod tests {
                 .error
                 .as_deref()
                 .is_some_and(|err| err.contains("unknown plugin option: surprise"))
+        );
+        assert_eq!(
+            response.supported_features.unwrap_or_default() & FEATURE_PROTO3_OPTIONAL,
+            FEATURE_PROTO3_OPTIONAL
         );
     }
 
