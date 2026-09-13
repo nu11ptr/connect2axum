@@ -8,10 +8,11 @@ use axum::extract::{
     },
 };
 use axum::response::Response as AxumResponse;
-use buffa::Message;
 use buffa::view::{MessageView, OwnedView};
+use buffa::{HasMessageView, Message};
 use connectrpc::{
     ConnectError, Encodable, ErrorCode, Response as ConnectResponse, ServiceResult, ServiceStream,
+    StreamMessage,
 };
 use futures_util::{
     SinkExt as _, StreamExt as _,
@@ -85,17 +86,15 @@ where
 /// Client and bidirectional streaming WebSocket clients can end the request
 /// stream without closing the socket by sending an empty text frame.
 #[must_use]
-pub fn make_ws_stream_request<V>(ws: SplitStream<WebSocket>) -> ServiceStream<OwnedView<V>>
+pub fn make_ws_stream_request<M>(ws: SplitStream<WebSocket>) -> ServiceStream<StreamMessage<M>>
 where
-    V: MessageView<'static> + Send + 'static,
-    V::Owned: DeserializeOwned + Send + 'static,
-    OwnedView<V>: Send + 'static,
+    M: HasMessageView + DeserializeOwned + 'static,
 {
     Box::pin(async_stream::stream! {
         let mut ws = ws;
         while let Some(message) = ws.next().await {
-            match convert_ws_to_item::<V>(message) {
-                Ok(WsItem::Item(item)) => yield Ok(item),
+            match convert_ws_to_item::<M::View<'static>>(message) {
+                Ok(WsItem::Item(item)) => yield Ok(StreamMessage::from_owned_view(item)),
                 Ok(WsItem::End) => break,
                 Ok(WsItem::Skip) => {}
                 Err(err) => {

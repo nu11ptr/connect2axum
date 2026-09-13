@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::get;
-use connectrpc::{RequestContext, Response, ServiceResult, ServiceStream};
+use connectrpc::{
+    RequestContext, Response, ServiceRequest, ServiceResult, ServiceStream, StreamMessage,
+};
 use futures_util::StreamExt as _;
 
 #[rustfmt::skip]
@@ -19,8 +21,9 @@ pub mod proto;
 #[path = "generated/connect2axum/streaming/v1/streaming.connect2rest.rs"]
 pub mod rest;
 
-use connect::streaming::v1::{GreeterServiceExt as _, OwnedHelloRequestView};
-use proto::streaming::v1::{HelloReply, HelloSummary};
+use connect::streaming::v1::GreeterServiceExt as _;
+use proto::streaming::v1::__buffa::view::HelloRequestView;
+use proto::streaming::v1::{HelloReply, HelloRequest, HelloSummary};
 
 #[derive(Clone, Debug, Default)]
 pub struct Greeter;
@@ -29,7 +32,7 @@ impl connect::streaming::v1::GreeterService for Greeter {
     async fn expand(
         &self,
         _ctx: RequestContext,
-        request: OwnedHelloRequestView,
+        request: ServiceRequest<'_, HelloRequest>,
     ) -> ServiceResult<ServiceStream<HelloReply>> {
         let stream = futures_util::stream::iter([
             Ok(reply(&request, "Hello")),
@@ -41,13 +44,13 @@ impl connect::streaming::v1::GreeterService for Greeter {
     async fn collect<'a>(
         &'a self,
         _ctx: RequestContext,
-        mut requests: ServiceStream<OwnedHelloRequestView>,
+        mut requests: ServiceStream<StreamMessage<HelloRequest>>,
     ) -> ServiceResult<impl connectrpc::Encodable<HelloSummary> + Send + use<'a>> {
         let mut names = Vec::new();
 
         while let Some(request) = requests.next().await {
             let request = request?;
-            names.push(full_name(&request));
+            names.push(full_name(request.view()));
         }
 
         Response::ok(HelloSummary {
@@ -59,9 +62,9 @@ impl connect::streaming::v1::GreeterService for Greeter {
     async fn chat(
         &self,
         _ctx: RequestContext,
-        requests: ServiceStream<OwnedHelloRequestView>,
+        requests: ServiceStream<StreamMessage<HelloRequest>>,
     ) -> ServiceResult<ServiceStream<HelloReply>> {
-        let stream = requests.map(|request| request.map(|request| reply(&request, "Hello")));
+        let stream = requests.map(|request| request.map(|request| reply(request.view(), "Hello")));
         Response::stream_ok(stream)
     }
 }
@@ -77,14 +80,14 @@ pub fn app() -> Router {
         .fallback_service(connect.into_axum_service())
 }
 
-fn reply(request: &OwnedHelloRequestView, prefix: &str) -> HelloReply {
+fn reply(request: &HelloRequestView<'_>, prefix: &str) -> HelloReply {
     HelloReply {
         message: format!("{prefix}, {} {}!", request.first_name, request.last_name),
         ..Default::default()
     }
 }
 
-fn full_name(request: &OwnedHelloRequestView) -> String {
+fn full_name(request: &HelloRequestView<'_>) -> String {
     format!("{} {}", request.first_name, request.last_name)
 }
 

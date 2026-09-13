@@ -309,7 +309,7 @@ mod tests {
         }
     }
 
-    fn method_options() -> MessageField<MethodOptions> {
+    fn method_options() -> MessageField<MethodOptions, buffa::Inline<MethodOptions>> {
         let mut rule = Vec::new();
         Tag::new(2, WireType::LengthDelimited).encode(&mut rule);
         buffa::types::encode_string("/hello/{name}", &mut rule);

@@ -25,6 +25,10 @@ pub mod greeter_service_rest {
             Ok(request__) => request__,
             Err(err) => return ::connect2axum::error_response(err),
         };
+        let request__ = ::connectrpc::ServiceRequest::from_parts(
+            request__.reborrow(),
+            request__.bytes(),
+        );
         ::connect2axum::stream_response::<
             crate::proto::streaming::v1::HelloReply,
             _,
@@ -41,7 +45,7 @@ pub mod greeter_service_rest {
     {
         let ctx__ = ::connect2axum::request_context(headers__, extensions__);
         let request__ = ::connect2axum::ndjson_request_stream::<
-            crate::proto::streaming::v1::__buffa::view::HelloRequestView<'static>,
+            crate::proto::streaming::v1::HelloRequest,
         >(body__);
         ::connect2axum::service_response::<
             crate::proto::streaming::v1::HelloSummary,
@@ -59,7 +63,7 @@ pub mod greeter_service_rest {
     {
         let ctx__ = ::connect2axum::request_context(headers__, extensions__);
         let request__ = ::connect2axum::ndjson_request_stream::<
-            crate::proto::streaming::v1::__buffa::view::HelloRequestView<'static>,
+            crate::proto::streaming::v1::HelloRequest,
         >(body__);
         ::connect2axum::stream_response::<
             crate::proto::streaming::v1::HelloReply,

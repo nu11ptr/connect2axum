@@ -25,12 +25,12 @@ pub mod http_rule {
             Self::Some(Pattern::from(v))
         }
     }
-    impl serde::Serialize for Pattern {
-        fn serialize<S: serde::Serializer>(
+    impl ::serde::Serialize for Pattern {
+        fn serialize<S: ::serde::Serializer>(
             &self,
             s: S,
         ) -> ::core::result::Result<S::Ok, S::Error> {
-            use serde::ser::SerializeMap;
+            use ::serde::ser::SerializeMap;
             let mut map = s.serialize_map(Some(1))?;
             match self {
                 Self::Get(v) => {
@@ -49,7 +49,7 @@ pub mod http_rule {
                     map.serialize_entry("patch", v)?;
                 }
                 Self::Custom(v) => {
-                    map.serialize_entry("custom", v)?;
+                    map.serialize_entry("custom", &**v)?;
                 }
             }
             map.end()

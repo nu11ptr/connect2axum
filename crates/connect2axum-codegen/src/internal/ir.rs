@@ -822,7 +822,9 @@ mod tests {
         }
     }
 
-    fn method_options(http_rule: Vec<u8>) -> MessageField<MethodOptions> {
+    fn method_options(
+        http_rule: Vec<u8>,
+    ) -> MessageField<MethodOptions, buffa::Inline<MethodOptions>> {
         let mut options = MethodOptions::default();
         options.__buffa_unknown_fields.push(UnknownField {
             number: HTTP_EXTENSION_NUMBER,

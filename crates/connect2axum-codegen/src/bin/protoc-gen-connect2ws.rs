@@ -8,7 +8,9 @@ fn main() {
         .read_to_end(&mut input)
         .expect("failed to read protoc request from stdin");
 
-    let request = connect2axum_codegen::CodeGeneratorRequest::decode_from_slice(&input)
+    let request = buffa::DecodeOptions::new()
+        .with_element_memory_limit(buffa_codegen::TOOLING_ELEMENT_MEMORY_LIMIT)
+        .decode_from_slice::<connect2axum_codegen::CodeGeneratorRequest>(&input)
         .expect("failed to decode protoc request");
     let response = connect2axum_codegen::generate_ws(&request);
     let output = response.encode_to_vec();

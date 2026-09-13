@@ -30,8 +30,14 @@ pub mod __buffa {
 #[doc(inline)]
 pub use self::__buffa::view::HelloRequestView;
 #[doc(inline)]
+pub use self::__buffa::view::HelloRequestOwnedView;
+#[doc(inline)]
 pub use self::__buffa::view::HelloReplyView;
 #[doc(inline)]
+pub use self::__buffa::view::HelloReplyOwnedView;
+#[doc(inline)]
 pub use self::__buffa::view::HelloSummaryView;
+#[doc(inline)]
+pub use self::__buffa::view::HelloSummaryOwnedView;
 #[doc(inline)]
 pub use self::__buffa::register_types;

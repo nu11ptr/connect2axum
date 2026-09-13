@@ -35,6 +35,10 @@ pub mod greeter_service_ws {
                             return;
                         }
                     };
+                    let request__ = ::connectrpc::ServiceRequest::from_parts(
+                        request__.reborrow(),
+                        request__.bytes(),
+                    );
                     let response__ = service__.expand(ctx__, request__).await;
                     ::connect2axum::process_ws_stream_response::<
                         crate::proto::streaming::v1::HelloReply,
@@ -61,9 +65,7 @@ pub mod greeter_service_ws {
                 |headers__, extensions__, stream__, sink__| async move {
                     let ctx__ = ::connect2axum::request_context(headers__, extensions__);
                     let request__ = ::connect2axum::make_ws_stream_request::<
-                        crate::proto::streaming::v1::__buffa::view::HelloRequestView<
-                            'static,
-                        >,
+                        crate::proto::streaming::v1::HelloRequest,
                     >(stream__);
                     let response__ = service__.collect(ctx__, request__).await;
                     ::connect2axum::process_ws_response::<
@@ -91,9 +93,7 @@ pub mod greeter_service_ws {
                 |headers__, extensions__, stream__, sink__| async move {
                     let ctx__ = ::connect2axum::request_context(headers__, extensions__);
                     let request__ = ::connect2axum::make_ws_stream_request::<
-                        crate::proto::streaming::v1::__buffa::view::HelloRequestView<
-                            'static,
-                        >,
+                        crate::proto::streaming::v1::HelloRequest,
                     >(stream__);
                     let response__ = service__.chat(ctx__, request__).await;
                     ::connect2axum::process_ws_stream_response::<

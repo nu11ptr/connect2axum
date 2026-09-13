@@ -12,7 +12,9 @@ fn main() -> SimpleResult<()> {
         .read_to_end(&mut input)
         .kind_default_context("failed to read CodeGeneratorRequest from stdin")?;
 
-    let request = CodeGeneratorRequest::decode_from_slice(&input)
+    let request = buffa::DecodeOptions::new()
+        .with_element_memory_limit(buffa_codegen::TOOLING_ELEMENT_MEMORY_LIMIT)
+        .decode_from_slice::<CodeGeneratorRequest>(&input)
         .kind_default_context("failed to decode CodeGeneratorRequest")?;
 
     let response = connect2axum_codegen::generate_asyncapi(&request);

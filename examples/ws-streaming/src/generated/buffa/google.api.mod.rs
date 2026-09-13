@@ -46,9 +46,15 @@ pub mod __buffa {
 #[doc(inline)]
 pub use self::__buffa::view::HttpView;
 #[doc(inline)]
+pub use self::__buffa::view::HttpOwnedView;
+#[doc(inline)]
 pub use self::__buffa::view::HttpRuleView;
 #[doc(inline)]
+pub use self::__buffa::view::HttpRuleOwnedView;
+#[doc(inline)]
 pub use self::__buffa::view::CustomHttpPatternView;
+#[doc(inline)]
+pub use self::__buffa::view::CustomHttpPatternOwnedView;
 #[doc(inline)]
 pub use self::__buffa::ext::HTTP;
 #[doc(inline)]

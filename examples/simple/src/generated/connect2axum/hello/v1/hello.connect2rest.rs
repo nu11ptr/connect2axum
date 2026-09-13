@@ -52,6 +52,10 @@ pub mod greeter_service_rest {
             Ok(request__) => request__,
             Err(err) => return ::connect2axum::error_response(err),
         };
+        let request__ = ::connectrpc::ServiceRequest::from_parts(
+            request__.reborrow(),
+            request__.bytes(),
+        );
         ::connect2axum::service_response::<
             crate::proto::hello::v1::HelloReply,
             _,

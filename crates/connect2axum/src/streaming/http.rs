@@ -1,10 +1,9 @@
 //! NDJSON HTTP streaming helpers for generated REST adapters.
 
 use axum::body::Body;
-use buffa::Message;
-use buffa::view::{MessageView, OwnedView};
+use buffa::{HasMessageView, Message};
 use bytes::Bytes;
-use connectrpc::{ConnectError, Encodable, Response, ServiceResult};
+use connectrpc::{ConnectError, Encodable, Response, ServiceResult, StreamMessage};
 use futures_util::StreamExt as _;
 use http::StatusCode;
 use http::header::CONTENT_TYPE;
@@ -18,19 +17,15 @@ pub use axum_extra::json_lines::JsonLines;
 /// generated Connect service traits.
 ///
 /// Axum Extra handles the NDJSON framing and deserializes each line with
-/// Buffa's serde helpers. Each owned message is then converted to an
-/// [`OwnedView`] exactly like unary REST JSON bodies.
+/// Buffa's serde helpers. Each owned message is then converted to a
+/// [`StreamMessage`] using the same view decoder as unary REST JSON bodies.
 #[must_use]
-pub fn ndjson_request_stream<V>(
-    lines: JsonLines<V::Owned>,
-) -> connectrpc::ServiceStream<OwnedView<V>>
+pub fn ndjson_request_stream<M>(lines: JsonLines<M>) -> connectrpc::ServiceStream<StreamMessage<M>>
 where
-    V: MessageView<'static> + Send + 'static,
-    V::Owned: Send + 'static,
-    OwnedView<V>: Send + 'static,
+    M: HasMessageView + 'static,
 {
     Box::pin(lines.map(|line| match line {
-        Ok(message) => owned_view::<V>(&message),
+        Ok(message) => owned_view::<M::View<'static>>(&message).map(StreamMessage::from_owned_view),
         Err(err) => Err(ConnectError::invalid_argument(format!(
             "failed to decode NDJSON request body: {err}"
         ))),

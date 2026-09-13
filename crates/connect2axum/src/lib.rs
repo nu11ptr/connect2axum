@@ -35,8 +35,8 @@ pub fn request_context(headers: HeaderMap, extensions: Extensions) -> RequestCon
     RequestContext::new(headers).with_extensions(extensions)
 }
 
-/// Converts an owned Buffa message into the `OwnedView<...View<'static>>`
-/// request type expected by generated Connect service traits.
+/// Converts an owned Buffa message into an `OwnedView<...View<'static>>` that
+/// generated REST handlers borrow when constructing a Connect service request.
 ///
 /// This mirrors ConnectRPC's JSON request path for view-based handlers:
 /// JSON is deserialized into the Buffa owned message, then Buffa re-encodes it
@@ -74,7 +74,7 @@ where
 /// Wraps a response body so JSON encoding can fall back through the Buffa owned
 /// message when the inner body's ConnectRPC encoder cannot produce JSON.
 ///
-/// Buffa 0.6 generates ProtoJSON `Serialize` impls for views, but ConnectRPC's
+/// Buffa generates ProtoJSON `Serialize` impls for views, but ConnectRPC's
 /// generated `Encodable` impl for views still returns `Unimplemented` for JSON.
 /// This wrapper keeps protobuf output direct and handles JSON by encoding
 /// protobuf, decoding the owned output message, then serializing that owned
@@ -166,7 +166,7 @@ pub fn error_response(err: ConnectError) -> http::Response<Body> {
     })
 }
 
-fn encoded_json_response(response: connectrpc::EncodedResponse) -> http::Response<Body> {
+fn encoded_json_response(response: Response<buffa::bytes::Bytes>) -> http::Response<Body> {
     let mut builder = http::Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, JSON_CONTENT_TYPE);
@@ -220,7 +220,7 @@ pub(crate) fn add_trailers(
 mod tests {
     use buffa::bytes::Bytes;
     use buffa::encoding::Tag;
-    use buffa::{DecodeError, DefaultInstance, Message, SizeCache};
+    use buffa::{DecodeContext, DecodeError, DefaultInstance, EncodeSink, Message, SizeCache};
     use connectrpc::{Encodable as _, ErrorCode, Response};
     use http::header::{CONTENT_TYPE, HeaderValue};
     use serde::Serialize;
@@ -342,13 +342,13 @@ mod tests {
             0
         }
 
-        fn write_to(&self, _cache: &mut SizeCache, _buf: &mut impl buffa::bytes::BufMut) {}
+        fn write_to(&self, _cache: &mut SizeCache, _buf: &mut impl EncodeSink) {}
 
         fn merge_field(
             &mut self,
             _tag: Tag,
             _buf: &mut impl buffa::bytes::Buf,
-            _depth: u32,
+            _ctx: DecodeContext<'_>,
         ) -> Result<(), DecodeError> {
             Err(DecodeError::UnexpectedEof)
         }

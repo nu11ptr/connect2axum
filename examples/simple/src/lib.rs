@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::get;
-use connectrpc::{RequestContext, Response, ServiceResult};
+use connectrpc::{RequestContext, Response, ServiceRequest, ServiceResult};
 
 #[rustfmt::skip]
 #[path = "generated/connect/mod.rs"]
@@ -17,8 +17,7 @@ pub mod proto;
 pub mod rest;
 
 use connect::hello::v1::GreeterServiceExt as _;
-use connect::hello::v1::OwnedHelloRequestView;
-use proto::hello::v1::HelloReply;
+use proto::hello::v1::{HelloReply, HelloRequest};
 
 const OPENAPI_JSON: &str = include_str!("generated/openapi/openapi.json");
 
@@ -29,7 +28,7 @@ impl connect::hello::v1::GreeterService for Greeter {
     async fn say_hello<'a>(
         &'a self,
         _ctx: RequestContext,
-        request: OwnedHelloRequestView,
+        request: ServiceRequest<'_, HelloRequest>,
     ) -> ServiceResult<impl connectrpc::Encodable<HelloReply> + Send + use<'a>> {
         Response::ok(HelloReply {
             message: format!(

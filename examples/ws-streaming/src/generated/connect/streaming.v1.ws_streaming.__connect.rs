@@ -27,7 +27,21 @@ for ::buffa::view::OwnedView<
         &self,
         codec: ::connectrpc::CodecFormat,
     ) -> ::std::result::Result<::buffa::bytes::Bytes, ::connectrpc::ConnectError> {
-        ::connectrpc::__codegen::encode_view_body(&**self, codec)
+        ::connectrpc::__codegen::encode_view_body(self.reborrow(), codec)
+    }
+    /// An `OwnedView` still holds the buffer it was decoded from, so
+    /// its large fields can be handed to the response body by
+    /// reference count instead of copied. The bare view impl above
+    /// cannot do this: it has borrows but no buffer to name.
+    fn encode_segments(
+        &self,
+        codec: ::connectrpc::CodecFormat,
+    ) -> ::std::result::Result<::connectrpc::EncodedBody, ::connectrpc::ConnectError> {
+        ::connectrpc::__codegen::encode_view_body_segments(
+            self.reborrow(),
+            self.bytes(),
+            codec,
+        )
     }
 }
 impl ::connectrpc::Encodable<crate::proto::streaming::v1::HelloSummary>
@@ -47,42 +61,44 @@ for ::buffa::view::OwnedView<
         &self,
         codec: ::connectrpc::CodecFormat,
     ) -> ::std::result::Result<::buffa::bytes::Bytes, ::connectrpc::ConnectError> {
-        ::connectrpc::__codegen::encode_view_body(&**self, codec)
+        ::connectrpc::__codegen::encode_view_body(self.reborrow(), codec)
+    }
+    /// An `OwnedView` still holds the buffer it was decoded from, so
+    /// its large fields can be handed to the response body by
+    /// reference count instead of copied. The bare view impl above
+    /// cannot do this: it has borrows but no buffer to name.
+    fn encode_segments(
+        &self,
+        codec: ::connectrpc::CodecFormat,
+    ) -> ::std::result::Result<::connectrpc::EncodedBody, ::connectrpc::ConnectError> {
+        ::connectrpc::__codegen::encode_view_body_segments(
+            self.reborrow(),
+            self.bytes(),
+            codec,
+        )
     }
 }
 /// Full service name for this service.
 pub const GREETER_SERVICE_SERVICE_NAME: &str = "streaming.v1.GreeterService";
-/// Static [`Spec`](::connectrpc::Spec) for the server-side `Expand` RPC.
-///
-/// The dispatcher surfaces this on
-/// [`RequestContext::spec`](::connectrpc::RequestContext::spec).
+/// Static [`Spec`](::connectrpc::Spec) for the `Expand` RPC, as seen by the server; the generated client passes it with [`origin`](::connectrpc::Spec::origin) `Client` (compare across sides with [`Spec::same_method`](::connectrpc::Spec::same_method)).
 pub const GREETER_SERVICE_EXPAND_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::server(
         "/streaming.v1.GreeterService/Expand",
         ::connectrpc::StreamType::ServerStream,
     )
     .with_idempotency_level(::connectrpc::IdempotencyLevel::Unknown);
-/// Static [`Spec`](::connectrpc::Spec) for the server-side `Collect` RPC.
-///
-/// The dispatcher surfaces this on
-/// [`RequestContext::spec`](::connectrpc::RequestContext::spec).
+/// Static [`Spec`](::connectrpc::Spec) for the `Collect` RPC, as seen by the server; the generated client passes it with [`origin`](::connectrpc::Spec::origin) `Client` (compare across sides with [`Spec::same_method`](::connectrpc::Spec::same_method)).
 pub const GREETER_SERVICE_COLLECT_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::server(
         "/streaming.v1.GreeterService/Collect",
         ::connectrpc::StreamType::ClientStream,
     )
     .with_idempotency_level(::connectrpc::IdempotencyLevel::Unknown);
-/// Static [`Spec`](::connectrpc::Spec) for the server-side `Chat` RPC.
-///
-/// The dispatcher surfaces this on
-/// [`RequestContext::spec`](::connectrpc::RequestContext::spec).
+/// Static [`Spec`](::connectrpc::Spec) for the `Chat` RPC, as seen by the server; the generated client passes it with [`origin`](::connectrpc::Spec::origin) `Client` (compare across sides with [`Spec::same_method`](::connectrpc::Spec::same_method)).
 pub const GREETER_SERVICE_CHAT_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::server(
         "/streaming.v1.GreeterService/Chat",
         ::connectrpc::StreamType::BidiStream,
     )
     .with_idempotency_level(::connectrpc::IdempotencyLevel::Unknown);
-/// Static [`Spec`](::connectrpc::Spec) for the server-side `Unary` RPC.
-///
-/// The dispatcher surfaces this on
-/// [`RequestContext::spec`](::connectrpc::RequestContext::spec).
+/// Static [`Spec`](::connectrpc::Spec) for the `Unary` RPC, as seen by the server; the generated client passes it with [`origin`](::connectrpc::Spec::origin) `Client` (compare across sides with [`Spec::same_method`](::connectrpc::Spec::same_method)).
 pub const GREETER_SERVICE_UNARY_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::server(
         "/streaming.v1.GreeterService/Unary",
         ::connectrpc::StreamType::Unary,
@@ -92,19 +108,32 @@ pub const GREETER_SERVICE_UNARY_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::s
 ///
 /// # Implementing handlers
 ///
-/// Handlers receive requests as `OwnedFooView` (an alias for
-/// `OwnedView<FooView<'static>>`), which gives zero-copy borrowed access
-/// to fields (e.g. `request.name` is a `&str` into the decoded buffer).
-/// The view can be held across `.await` points. When two RPC types in
-/// the same package would alias to the same `Owned<…>View` name (e.g.
-/// a local message plus an imported one with the same short name), the
-/// alias is suppressed for both and the request type is spelled as
-/// `OwnedView<…View<'static>>` directly in the trait signature.
-///
 /// Implement methods with plain `async fn`; the returned future satisfies
-/// the `Send` bound automatically. See the
-/// [buffa user guide](https://github.com/anthropics/buffa/blob/main/docs/guide.md#ownedview-in-async-trait-implementations)
-/// for zero-copy access patterns and when `to_owned_message()` is needed.
+/// the `Send` bound automatically.
+///
+/// **Unary and server-streaming requests** arrive as
+/// [`ServiceRequest<'_, Req>`](::connectrpc::ServiceRequest): a zero-copy
+/// view of the request plus its body, valid for the duration of the call.
+/// Fields are read directly (`request.name` is a `&str` into the decoded
+/// buffer) and the borrow may be held across `.await` points. Anything
+/// that must outlive the call — `tokio::spawn`, channels, server state,
+/// or data captured by a returned response stream — takes owned data:
+/// call `request.to_owned_message()` (or copy the specific fields)
+/// first.
+///
+/// **Client-streaming and bidi requests** arrive as
+/// [`InboundStream<Req>`](::connectrpc::InboundStream) — a
+/// `ServiceStream` of [`StreamMessage`](::connectrpc::StreamMessage)s.
+/// Each item owns its decoded buffer and is `Send + 'static`, so items
+/// can be buffered or moved into spawned tasks; read fields zero-copy
+/// through the generated accessor methods (`item.name()`) or `.view()`,
+/// convert with `.to_owned_message()`, or yield an item back unchanged —
+/// `StreamMessage<M>` implements `Encodable<M>`.
+///
+/// Request types resolved through `extern_path` (e.g. well-known types
+/// from another crate) use the same wrappers; the crate that owns the
+/// type must be generated with buffa ≥ 0.9.0 and views enabled so the
+/// backing `HasMessageView` impl exists.
 ///
 /// The `impl Encodable<Out>` return bound accepts the owned `Out`, the
 /// generated `OutView<'_>` / `OwnedOutView`,
@@ -117,19 +146,29 @@ pub const GREETER_SERVICE_UNARY_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::s
 ///
 /// Server-streaming and bidi-streaming methods return
 /// `ServiceStream<impl Encodable<Out> + Send + use<Self>>`. The
-/// `use<Self>` precise-capturing clause excludes `&self`'s lifetime
-/// (unary methods use `use<'a, Self>` and may borrow), so stream items
-/// must be `'static`. To stream view-encoded data, encode each item
-/// inside the stream body and yield
+/// `use<Self>` precise-capturing clause excludes `&self`'s lifetime and
+/// the request's lifetime (unary methods use `use<'a, Self>` and may
+/// borrow from `&self`), so stream items must be `'static` and cannot
+/// borrow from the request. To stream view-encoded data, encode each
+/// item inside the stream body and yield
 /// [`PreEncoded`](::connectrpc::PreEncoded) — see its `# Streaming
 /// example` doc.
 #[allow(clippy::type_complexity)]
 pub trait GreeterService: Send + Sync + 'static {
     /// Handle the Expand RPC.
+    ///
+    /// `request` is borrowed from the request body and is valid for the
+    /// duration of the call (until the response stream is returned);
+    /// message fields are read directly on it (zero-copy). Data the
+    /// returned stream needs must be copied out or converted via
+    /// `.to_owned_message()`.
     fn expand(
         &self,
         ctx: ::connectrpc::RequestContext,
-        request: OwnedHelloRequestView,
+        request: ::connectrpc::ServiceRequest<
+            '_,
+            crate::proto::streaming::v1::HelloRequest,
+        >,
     ) -> impl ::std::future::Future<
         Output = ::connectrpc::ServiceResult<
             ::connectrpc::ServiceStream<
@@ -142,10 +181,15 @@ pub trait GreeterService: Send + Sync + 'static {
     /// Handle the Collect RPC.
     ///
     /// `'a` lets the response body borrow from `&self` (e.g. server-resident state).
+    ///
+    /// Each `requests` item is a [`StreamMessage`](::connectrpc::StreamMessage):
+    /// it owns its buffer, is `Send + 'static`, and exposes zero-copy
+    /// accessor methods (`item.name()`), `.view()`, and
+    /// `.to_owned_message()`.
     fn collect<'a>(
         &'a self,
         ctx: ::connectrpc::RequestContext,
-        requests: ::connectrpc::ServiceStream<OwnedHelloRequestView>,
+        requests: ::connectrpc::InboundStream<crate::proto::streaming::v1::HelloRequest>,
     ) -> impl ::std::future::Future<
         Output = ::connectrpc::ServiceResult<
             impl ::connectrpc::Encodable<
@@ -154,10 +198,15 @@ pub trait GreeterService: Send + Sync + 'static {
         >,
     > + Send;
     /// Handle the Chat RPC.
+    ///
+    /// Each `requests` item is a [`StreamMessage`](::connectrpc::StreamMessage):
+    /// it owns its buffer, is `Send + 'static`, and exposes zero-copy
+    /// accessor methods (`item.name()`), `.view()`, and
+    /// `.to_owned_message()`.
     fn chat(
         &self,
         ctx: ::connectrpc::RequestContext,
-        requests: ::connectrpc::ServiceStream<OwnedHelloRequestView>,
+        requests: ::connectrpc::InboundStream<crate::proto::streaming::v1::HelloRequest>,
     ) -> impl ::std::future::Future<
         Output = ::connectrpc::ServiceResult<
             ::connectrpc::ServiceStream<
@@ -170,10 +219,19 @@ pub trait GreeterService: Send + Sync + 'static {
     /// Handle the Unary RPC.
     ///
     /// `'a` lets the response body borrow from `&self` (e.g. server-resident state).
+    ///
+    /// `request` is borrowed from the request body and is valid for the
+    /// duration of the call; message fields are read directly on it
+    /// (zero-copy). The response cannot borrow from `request` — use
+    /// `.to_owned_message()` (or copy the specific fields) for anything
+    /// returned, stored, or moved into `tokio::spawn`.
     fn unary<'a>(
         &'a self,
         ctx: ::connectrpc::RequestContext,
-        request: OwnedHelloRequestView,
+        request: ::connectrpc::ServiceRequest<
+            '_,
+            crate::proto::streaming::v1::HelloRequest,
+        >,
     ) -> impl ::std::future::Future<
         Output = ::connectrpc::ServiceResult<
             impl ::connectrpc::Encodable<
@@ -185,6 +243,9 @@ pub trait GreeterService: Send + Sync + 'static {
 /// Extension trait for registering a service implementation with a Router.
 ///
 /// This trait is automatically implemented for all types that implement the service trait.
+/// Prefer [`Router::add_service`](::connectrpc::Router::add_service) for
+/// top-down registration; `register` remains available for compatibility
+/// and cases where the service-first call shape is more convenient.
 ///
 /// # Example
 ///
@@ -219,9 +280,21 @@ impl<S: GreeterService> GreeterServiceExt for S {
                 "Expand",
                 ::connectrpc::view_streaming_handler_fn({
                     let svc = ::std::sync::Arc::clone(&self);
-                    move |ctx, req| {
+                    move |
+                        ctx,
+                        req: ::buffa::view::OwnedView<
+                            crate::proto::streaming::v1::__buffa::view::HelloRequestView<
+                                'static,
+                            >,
+                        >|
+                    {
                         let svc = ::std::sync::Arc::clone(&svc);
-                        async move { svc.expand(ctx, req).await }
+                        async move {
+                            let sreq = ::connectrpc::ServiceRequest::<
+                                crate::proto::streaming::v1::HelloRequest,
+                            >::from_parts(req.reborrow(), req.bytes());
+                            svc.expand(ctx, sreq).await
+                        }
                     }
                 }),
             )
@@ -234,6 +307,9 @@ impl<S: GreeterService> GreeterServiceExt for S {
                     move |ctx, req, format| {
                         let svc = ::std::sync::Arc::clone(&svc);
                         async move {
+                            let req = ::connectrpc::dispatcher::codegen::into_stream_messages::<
+                                crate::proto::streaming::v1::HelloRequest,
+                            >(req);
                             svc.collect(ctx, req)
                                 .await?
                                 .encode::<crate::proto::streaming::v1::HelloSummary>(format)
@@ -253,7 +329,12 @@ impl<S: GreeterService> GreeterServiceExt for S {
                     let svc = ::std::sync::Arc::clone(&self);
                     move |ctx, req| {
                         let svc = ::std::sync::Arc::clone(&svc);
-                        async move { svc.chat(ctx, req).await }
+                        async move {
+                            let req = ::connectrpc::dispatcher::codegen::into_stream_messages::<
+                                crate::proto::streaming::v1::HelloRequest,
+                            >(req);
+                            svc.chat(ctx, req).await
+                        }
                     }
                 }),
             )
@@ -263,10 +344,21 @@ impl<S: GreeterService> GreeterServiceExt for S {
                 "Unary",
                 {
                     let svc = ::std::sync::Arc::clone(&self);
-                    ::connectrpc::view_handler_fn(move |ctx, req, format| {
+                    ::connectrpc::view_handler_fn(move |
+                        ctx,
+                        req: ::buffa::view::OwnedView<
+                            crate::proto::streaming::v1::__buffa::view::HelloRequestView<
+                                'static,
+                            >,
+                        >,
+                        format|
+                    {
                         let svc = ::std::sync::Arc::clone(&svc);
                         async move {
-                            svc.unary(ctx, req)
+                            let sreq = ::connectrpc::ServiceRequest::<
+                                crate::proto::streaming::v1::HelloRequest,
+                            >::from_parts(req.reborrow(), req.bytes());
+                            svc.unary(ctx, sreq)
                                 .await?
                                 .encode::<crate::proto::streaming::v1::HelloReply>(format)
                         }
@@ -274,6 +366,15 @@ impl<S: GreeterService> GreeterServiceExt for S {
                 },
             )
             .with_spec(GREETER_SERVICE_UNARY_SPEC)
+    }
+}
+/// Type-inference marker used by [`Router::add_service`](::connectrpc::Router::add_service).
+#[doc(hidden)]
+pub struct GreeterServiceRegisterMarker;
+impl<S: GreeterService> ::connectrpc::ServiceRegister<GreeterServiceRegisterMarker>
+for ::std::sync::Arc<S> {
+    fn register_service(self, router: ::connectrpc::Router) -> ::connectrpc::Router {
+        <S as GreeterServiceExt>::register(self, router)
     }
 }
 /// Monomorphic dispatcher for `GreeterService`.
@@ -361,9 +462,18 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
             "Unary" => {
                 let svc = ::std::sync::Arc::clone(&self.inner);
                 Box::pin(async move {
-                    let req = ::connectrpc::dispatcher::codegen::decode_request_view::<
-                        crate::proto::streaming::v1::__buffa::view::HelloRequestView,
+                    let body = ::connectrpc::dispatcher::codegen::request_proto_bytes::<
+                        crate::proto::streaming::v1::HelloRequest,
                     >(request.encoded()?, format)?;
+                    let req: crate::proto::streaming::v1::__buffa::view::HelloRequestView<
+                        '_,
+                    > = ::connectrpc::dispatcher::codegen::decode_borrowed_request_view(
+                        &body,
+                        ctx.decode_options(),
+                    )?;
+                    let req = ::connectrpc::ServiceRequest::<
+                        crate::proto::streaming::v1::HelloRequest,
+                    >::from_parts(&req, &body);
                     svc.unary(ctx, req)
                         .await?
                         .encode::<crate::proto::streaming::v1::HelloReply>(format)
@@ -387,9 +497,18 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
             "Expand" => {
                 let svc = ::std::sync::Arc::clone(&self.inner);
                 Box::pin(async move {
-                    let req = ::connectrpc::dispatcher::codegen::decode_request_view::<
-                        crate::proto::streaming::v1::__buffa::view::HelloRequestView,
+                    let body = ::connectrpc::dispatcher::codegen::request_proto_bytes::<
+                        crate::proto::streaming::v1::HelloRequest,
                     >(request, format)?;
+                    let req: crate::proto::streaming::v1::__buffa::view::HelloRequestView<
+                        '_,
+                    > = ::connectrpc::dispatcher::codegen::decode_borrowed_request_view(
+                        &body,
+                        ctx.decode_options(),
+                    )?;
+                    let req = ::connectrpc::ServiceRequest::<
+                        crate::proto::streaming::v1::HelloRequest,
+                    >::from_parts(&req, &body);
                     let resp = svc.expand(ctx, req).await?;
                     Ok(
                         resp
@@ -419,9 +538,9 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
             "Collect" => {
                 let svc = ::std::sync::Arc::clone(&self.inner);
                 Box::pin(async move {
-                    let req_stream = ::connectrpc::dispatcher::codegen::decode_view_request_stream::<
-                        crate::proto::streaming::v1::__buffa::view::HelloRequestView,
-                    >(requests, format);
+                    let req_stream = ::connectrpc::dispatcher::codegen::decode_message_request_stream::<
+                        crate::proto::streaming::v1::HelloRequest,
+                    >(requests, format, ctx.decode_options().clone());
                     svc.collect(ctx, req_stream)
                         .await?
                         .encode::<crate::proto::streaming::v1::HelloSummary>(format)
@@ -445,9 +564,9 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
             "Chat" => {
                 let svc = ::std::sync::Arc::clone(&self.inner);
                 Box::pin(async move {
-                    let req_stream = ::connectrpc::dispatcher::codegen::decode_view_request_stream::<
-                        crate::proto::streaming::v1::__buffa::view::HelloRequestView,
-                    >(requests, format);
+                    let req_stream = ::connectrpc::dispatcher::codegen::decode_message_request_stream::<
+                        crate::proto::streaming::v1::HelloRequest,
+                    >(requests, format, ctx.decode_options().clone());
                     let resp = svc.chat(ctx, req_stream).await?;
                     Ok(
                         resp
@@ -499,11 +618,12 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
 /// # Working with the response
 ///
 /// Unary calls return [`UnaryResponse<OwnedView<FooView>>`](::connectrpc::client::UnaryResponse).
-/// The `OwnedView` derefs to the view, so field access is zero-copy:
+/// [`view()`](::connectrpc::client::UnaryResponse::view) borrows the response
+/// message, so field access is zero-copy:
 ///
 /// ```rust,ignore
-/// let resp = client.expand(request).await?.into_view();
-/// let name: &str = resp.name;  // borrow into the response buffer
+/// let resp = client.expand(request).await?;
+/// let name: &str = resp.view().name;  // borrow into the response buffer
 /// ```
 ///
 /// If you need the owned struct (e.g. to store or pass by value), use
@@ -512,6 +632,13 @@ impl<T: GreeterService> ::connectrpc::Dispatcher for GreeterServiceServer<T> {
 /// ```rust,ignore
 /// let owned = client.expand(request).await?.into_owned();
 /// ```
+///
+/// [`into_view()`](::connectrpc::client::UnaryResponse::into_view) keeps the
+/// zero-copy decoded body (an `OwnedView`) without copying; field access on it
+/// goes through `.reborrow()`. Streaming responses yield one
+/// [`StreamMessage`](::connectrpc::StreamMessage) per received message from
+/// `.message().await` — read fields zero-copy through the generated accessor
+/// methods (`msg.name()`) or `.view()`, or convert with `.to_owned_message()`.
 #[derive(Clone)]
 pub struct GreeterServiceClient<T> {
     transport: T,
@@ -520,7 +647,7 @@ pub struct GreeterServiceClient<T> {
 impl<T> GreeterServiceClient<T>
 where
     T: ::connectrpc::client::ClientTransport,
-    <T::ResponseBody as ::http_body::Body>::Error: ::std::fmt::Display,
+    <T::ResponseBody as ::connectrpc::http_body::Body>::Error: ::std::fmt::Display,
 {
     /// Create a new client with the given transport and configuration.
     pub fn new(transport: T, config: ::connectrpc::client::ClientConfig) -> Self {
@@ -563,17 +690,32 @@ where
         ::connectrpc::client::call_server_stream(
                 &self.transport,
                 &self.config,
-                GREETER_SERVICE_SERVICE_NAME,
-                "Expand",
+                GREETER_SERVICE_EXPAND_SPEC
+                    .with_origin(::connectrpc::SpecOrigin::Client),
                 request,
                 options,
             )
             .await
     }
     /// Call the Collect RPC. Sends a request to /streaming.v1.GreeterService/Collect.
+    ///
+    /// `requests` is any `Stream<Item = ...> + Send + 'static` of
+    /// request messages (the `ClientRequestStream` bound); messages
+    /// are sent as the stream yields them. It backs the request
+    /// body, so yield owned messages or feed the call from a
+    /// channel-backed stream. For a collection that is already in
+    /// hand, wrap it with `::connectrpc::stream_iter(...)`.
+    ///
+    /// Dropping the returned future cancels the call: the request
+    /// body is dropped along with it, so messages the stream had
+    /// not yet yielded are never delivered. A caller that needs the
+    /// request delivered must drive the call to completion rather
+    /// than, say, wrapping it in a `timeout`.
     pub async fn collect(
         &self,
-        requests: impl IntoIterator<Item = crate::proto::streaming::v1::HelloRequest>,
+        requests: impl ::connectrpc::client::ClientRequestStream<
+            crate::proto::streaming::v1::HelloRequest,
+        >,
     ) -> Result<
         ::connectrpc::client::UnaryResponse<
             ::buffa::view::OwnedView<
@@ -586,9 +728,24 @@ where
             .await
     }
     /// Call the Collect RPC with explicit per-call options. Options override [`ClientConfig`](::connectrpc::client::ClientConfig) defaults.
+    ///
+    /// `requests` is any `Stream<Item = ...> + Send + 'static` of
+    /// request messages (the `ClientRequestStream` bound); messages
+    /// are sent as the stream yields them. It backs the request
+    /// body, so yield owned messages or feed the call from a
+    /// channel-backed stream. For a collection that is already in
+    /// hand, wrap it with `::connectrpc::stream_iter(...)`.
+    ///
+    /// Dropping the returned future cancels the call: the request
+    /// body is dropped along with it, so messages the stream had
+    /// not yet yielded are never delivered. A caller that needs the
+    /// request delivered must drive the call to completion rather
+    /// than, say, wrapping it in a `timeout`.
     pub async fn collect_with_options(
         &self,
-        requests: impl IntoIterator<Item = crate::proto::streaming::v1::HelloRequest>,
+        requests: impl ::connectrpc::client::ClientRequestStream<
+            crate::proto::streaming::v1::HelloRequest,
+        >,
         options: ::connectrpc::client::CallOptions,
     ) -> Result<
         ::connectrpc::client::UnaryResponse<
@@ -601,8 +758,8 @@ where
         ::connectrpc::client::call_client_stream(
                 &self.transport,
                 &self.config,
-                GREETER_SERVICE_SERVICE_NAME,
-                "Collect",
+                GREETER_SERVICE_COLLECT_SPEC
+                    .with_origin(::connectrpc::SpecOrigin::Client),
                 requests,
                 options,
             )
@@ -636,8 +793,7 @@ where
         ::connectrpc::client::call_bidi_stream(
                 &self.transport,
                 &self.config,
-                GREETER_SERVICE_SERVICE_NAME,
-                "Chat",
+                GREETER_SERVICE_CHAT_SPEC.with_origin(::connectrpc::SpecOrigin::Client),
                 options,
             )
             .await
@@ -673,8 +829,7 @@ where
         ::connectrpc::client::call_unary(
                 &self.transport,
                 &self.config,
-                GREETER_SERVICE_SERVICE_NAME,
-                "Unary",
+                GREETER_SERVICE_UNARY_SPEC.with_origin(::connectrpc::SpecOrigin::Client),
                 request,
                 options,
             )

@@ -246,6 +246,12 @@ impl<'a> RustGenerator<'a> {
                 .as_str(),
             "method output type",
         )?;
+        let request_type = parse_type(
+            self.resolver
+                .owned_message_type(method.input_type.as_ref())?
+                .as_str(),
+            "method request type",
+        )?;
         let request_view_type = parse_type(
             &format!(
                 "{}<'static>",
@@ -265,6 +271,10 @@ impl<'a> RustGenerator<'a> {
                         return;
                     }
                 };
+                let #request_value = ::connectrpc::ServiceRequest::from_parts(
+                    #request_value.reborrow(),
+                    #request_value.bytes(),
+                );
                 let #response_value = #service_value.#method_ident(#ctx_value, #request_value).await;
                 #runtime::process_ws_stream_response::<#output_type, _>(
                     #response_value,
@@ -272,7 +282,7 @@ impl<'a> RustGenerator<'a> {
                 ).await;
             },
             WsMethodKind::Client => quote! {
-                let #request_value = #runtime::make_ws_stream_request::<#request_view_type>(#stream_value);
+                let #request_value = #runtime::make_ws_stream_request::<#request_type>(#stream_value);
                 let #response_value = #service_value.#method_ident(#ctx_value, #request_value).await;
                 #runtime::process_ws_response::<#output_type, _>(
                     #response_value,
@@ -280,7 +290,7 @@ impl<'a> RustGenerator<'a> {
                 ).await;
             },
             WsMethodKind::Bidi => quote! {
-                let #request_value = #runtime::make_ws_stream_request::<#request_view_type>(#stream_value);
+                let #request_value = #runtime::make_ws_stream_request::<#request_type>(#stream_value);
                 let #response_value = #service_value.#method_ident(#ctx_value, #request_value).await;
                 #runtime::process_ws_stream_response::<#output_type, _>(
                     #response_value,
@@ -745,7 +755,7 @@ mod tests {
 
     fn streaming_method(
         name: &str,
-        options: MessageField<MethodOptions>,
+        options: MessageField<MethodOptions, buffa::Inline<MethodOptions>>,
         client_streaming: bool,
         server_streaming: bool,
     ) -> MethodDescriptorProto {
@@ -771,7 +781,11 @@ mod tests {
         }
     }
 
-    fn http_rule(verb_field: u32, path: &str, body: Option<&str>) -> MessageField<MethodOptions> {
+    fn http_rule(
+        verb_field: u32,
+        path: &str,
+        body: Option<&str>,
+    ) -> MessageField<MethodOptions, buffa::Inline<MethodOptions>> {
         let mut rule = Vec::new();
         Tag::new(verb_field, WireType::LengthDelimited).encode(&mut rule);
         buffa::types::encode_string(path, &mut rule);

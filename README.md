@@ -17,6 +17,14 @@ This installs:
 - `protoc-gen-connect2openapi`
 - `protoc-gen-connect2asyncapi`
 
+`connect2axum` 0.3 and `connect2axum-codegen` 0.5 target Buffa 0.9 and
+ConnectRPC 0.9. When upgrading, regenerate the Buffa, ConnectRPC, and
+connect2axum bindings together. Service implementations now receive
+`ServiceRequest<'_, Request>` for unary and server-streaming calls, and
+`InboundStream<Request>` (items of `StreamMessage<Request>`) for client and
+bidirectional streaming calls. Read stream-item fields through `.view()` or
+the generated accessor methods.
+
 ## Plugin Options
 
 Options are passed as comma-separated `name=value` pairs in `buf.gen.yaml`.

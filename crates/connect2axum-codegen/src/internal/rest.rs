@@ -228,7 +228,7 @@ impl<'a> RustGenerator<'a> {
 
         let request_preparation = if method.client_streaming {
             quote! {
-                let #request_value = #runtime::ndjson_request_stream::<#request_view_type>(#body_value);
+                let #request_value = #runtime::ndjson_request_stream::<#request_type>(#body_value);
             }
         } else {
             let request_reconstruction = request_reconstruction_tokens(
@@ -245,6 +245,10 @@ impl<'a> RustGenerator<'a> {
                     Ok(#request_value) => #request_value,
                     Err(err) => return #runtime::error_response(err),
                 };
+                let #request_value = ::connectrpc::ServiceRequest::from_parts(
+                    #request_value.reborrow(),
+                    #request_value.bytes(),
+                );
             }
         };
         let response_conversion = if method.server_streaming {
@@ -812,6 +816,10 @@ pub mod test_service_rest {
             Ok(request__) => request__,
             Err(err) => return ::connect2axum::error_response(err),
         };
+        let request__ = ::connectrpc::ServiceRequest::from_parts(
+            request__.reborrow(),
+            request__.bytes(),
+        );
         ::connect2axum::service_response::<
             crate::proto::test::v1::TestResponse,
             _,
@@ -844,6 +852,10 @@ pub mod test_service_rest {
             Ok(request__) => request__,
             Err(err) => return ::connect2axum::error_response(err),
         };
+        let request__ = ::connectrpc::ServiceRequest::from_parts(
+            request__.reborrow(),
+            request__.bytes(),
+        );
         ::connect2axum::service_response::<
             crate::proto::test::v1::TestResponse,
             _,
@@ -866,6 +878,10 @@ pub mod test_service_rest {
             Ok(request__) => request__,
             Err(err) => return ::connect2axum::error_response(err),
         };
+        let request__ = ::connectrpc::ServiceRequest::from_parts(
+            request__.reborrow(),
+            request__.bytes(),
+        );
         ::connect2axum::service_response::<
             crate::proto::test::v1::TestResponse,
             _,
@@ -887,6 +903,10 @@ pub mod test_service_rest {
             Ok(request__) => request__,
             Err(err) => return ::connect2axum::error_response(err),
         };
+        let request__ = ::connectrpc::ServiceRequest::from_parts(
+            request__.reborrow(),
+            request__.bytes(),
+        );
         ::connect2axum::service_response::<
             crate::proto::test::v1::TestResponse,
             _,
@@ -1206,7 +1226,7 @@ pub mod test_service_rest {
     fn method(
         name: &str,
         input_type: &str,
-        options: MessageField<MethodOptions>,
+        options: MessageField<MethodOptions, buffa::Inline<MethodOptions>>,
     ) -> MethodDescriptorProto {
         streaming_method(name, input_type, options, false, false)
     }
@@ -1214,7 +1234,7 @@ pub mod test_service_rest {
     fn streaming_method(
         name: &str,
         input_type: &str,
-        options: MessageField<MethodOptions>,
+        options: MessageField<MethodOptions, buffa::Inline<MethodOptions>>,
         client_streaming: bool,
         server_streaming: bool,
     ) -> MethodDescriptorProto {
@@ -1233,7 +1253,7 @@ pub mod test_service_rest {
         name: &str,
         input_type: &str,
         output_type: &str,
-        options: MessageField<MethodOptions>,
+        options: MessageField<MethodOptions, buffa::Inline<MethodOptions>>,
     ) -> MethodDescriptorProto {
         MethodDescriptorProto {
             name: Some(name.into()),
@@ -1368,7 +1388,11 @@ pub mod test_service_rest {
         }
     }
 
-    fn http_rule(verb_field: u32, path: &str, body: Option<&str>) -> MessageField<MethodOptions> {
+    fn http_rule(
+        verb_field: u32,
+        path: &str,
+        body: Option<&str>,
+    ) -> MessageField<MethodOptions, buffa::Inline<MethodOptions>> {
         let mut rule = Vec::new();
         Tag::new(verb_field, WireType::LengthDelimited).encode(&mut rule);
         buffa::types::encode_string(path, &mut rule);
@@ -1477,6 +1501,18 @@ impl Router {
 pub struct HeaderMap;
 pub struct Extensions;
 pub struct RequestContext;
+
+pub struct ServiceRequest<'a, M>(&'a M);
+
+impl<'a, M: Clone> ServiceRequest<'a, M> {
+    pub fn from_parts(view: &'a M, _bytes: &'a [u8]) -> Self {
+        Self(view)
+    }
+
+    pub fn to_owned_message(&self) -> M {
+        self.0.clone()
+    }
+}
 
 pub fn request_context(_headers: HeaderMap, _extensions: Extensions) -> RequestContext {
     RequestContext
@@ -1591,6 +1627,16 @@ pub mod view {
         pub V::Owned,
         pub ::std::marker::PhantomData<V>,
     );
+
+    impl<V: MessageView<'static>> OwnedView<V> {
+        pub fn reborrow(&self) -> &V::Owned {
+            &self.0
+        }
+
+        pub fn bytes(&self) -> &[u8] {
+            &[]
+        }
+    }
 }
 
 pub mod connect {
@@ -1600,9 +1646,7 @@ pub mod connect {
                 fn get_one<'a>(
                     &'a self,
                     _ctx: crate::RequestContext,
-                    _request: crate::view::OwnedView<
-                        crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
-                    >,
+                    _request: crate::ServiceRequest<'a, crate::proto::test::v1::TestRequest>,
                 ) -> impl ::std::future::Future<
                     Output = crate::ServiceResult<crate::proto::test::v1::TestResponse>,
                 > + Send + 'a;
@@ -1610,9 +1654,7 @@ pub mod connect {
                 fn do_test<'a>(
                     &'a self,
                     _ctx: crate::RequestContext,
-                    _request: crate::view::OwnedView<
-                        crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
-                    >,
+                    _request: crate::ServiceRequest<'a, crate::proto::test::v1::TestRequest>,
                 ) -> impl ::std::future::Future<
                     Output = crate::ServiceResult<crate::proto::test::v1::TestResponse>,
                 > + Send + 'a;
@@ -1620,9 +1662,7 @@ pub mod connect {
                 fn patch_all<'a>(
                     &'a self,
                     _ctx: crate::RequestContext,
-                    _request: crate::view::OwnedView<
-                        crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
-                    >,
+                    _request: crate::ServiceRequest<'a, crate::proto::test::v1::TestRequest>,
                 ) -> impl ::std::future::Future<
                     Output = crate::ServiceResult<crate::proto::test::v1::TestResponse>,
                 > + Send + 'a;
@@ -1630,9 +1670,7 @@ pub mod connect {
                 fn ping<'a>(
                     &'a self,
                     _ctx: crate::RequestContext,
-                    _request: crate::view::OwnedView<
-                        crate::proto::test::v1::__buffa::view::EmptyRequestView<'static>,
-                    >,
+                    _request: crate::ServiceRequest<'a, crate::proto::test::v1::EmptyRequest>,
                 ) -> impl ::std::future::Future<
                     Output = crate::ServiceResult<crate::proto::test::v1::TestResponse>,
                 > + Send + 'a;
@@ -1744,41 +1782,33 @@ mod generated_handler_tests {
         fn get_one<'a>(
             &'a self,
             _ctx: crate::RequestContext,
-            request: crate::view::OwnedView<
-                crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
-            >,
+            request: crate::ServiceRequest<'a, crate::proto::test::v1::TestRequest>,
         ) -> impl Future<Output = ServiceResult<TestResponse>> + Send + 'a {
-            async move { self.respond(Call::Test(request.0)) }
+            async move { self.respond(Call::Test(request.to_owned_message())) }
         }
 
         fn do_test<'a>(
             &'a self,
             _ctx: crate::RequestContext,
-            request: crate::view::OwnedView<
-                crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
-            >,
+            request: crate::ServiceRequest<'a, crate::proto::test::v1::TestRequest>,
         ) -> impl Future<Output = ServiceResult<TestResponse>> + Send + 'a {
-            async move { self.respond(Call::Test(request.0)) }
+            async move { self.respond(Call::Test(request.to_owned_message())) }
         }
 
         fn patch_all<'a>(
             &'a self,
             _ctx: crate::RequestContext,
-            request: crate::view::OwnedView<
-                crate::proto::test::v1::__buffa::view::TestRequestView<'static>,
-            >,
+            request: crate::ServiceRequest<'a, crate::proto::test::v1::TestRequest>,
         ) -> impl Future<Output = ServiceResult<TestResponse>> + Send + 'a {
-            async move { self.respond(Call::Test(request.0)) }
+            async move { self.respond(Call::Test(request.to_owned_message())) }
         }
 
         fn ping<'a>(
             &'a self,
             _ctx: crate::RequestContext,
-            request: crate::view::OwnedView<
-                crate::proto::test::v1::__buffa::view::EmptyRequestView<'static>,
-            >,
+            request: crate::ServiceRequest<'a, crate::proto::test::v1::EmptyRequest>,
         ) -> impl Future<Output = ServiceResult<TestResponse>> + Send + 'a {
-            async move { self.respond(Call::Empty(request.0)) }
+            async move { self.respond(Call::Empty(request.to_owned_message())) }
         }
     }
 
