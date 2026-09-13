@@ -5,7 +5,8 @@ use axum::body::Body;
 use buffa::Message;
 use buffa::view::{MessageView, OwnedView};
 use connectrpc::{
-    CodecFormat, ConnectError, Encodable, ErrorCode, RequestContext, Response, ServiceResult,
+    CodecFormat, ConnectError, Encodable, EncodedBody, ErrorCode, RequestContext, Response,
+    ServiceResult,
 };
 use http::header::CONTENT_TYPE;
 use http::{Extensions, HeaderMap, StatusCode};
@@ -71,6 +72,63 @@ where
     owned_view::<V>(&message)
 }
 
+/// Encodes a response view directly as ProtoJSON using its [`Serialize`] impl.
+///
+/// Use [`json_view`] to construct this wrapper. It bypasses the inner
+/// [`Encodable`] implementation for JSON, avoiding an intermediate protobuf
+/// buffer and owned message. Other codecs, including segmented encoding, are
+/// delegated to the inner body.
+///
+/// The inner body's `Serialize` implementation must produce the ProtoJSON
+/// representation of the same message as its `Encodable` implementation.
+/// Buffa-generated views provide this when JSON generation is enabled.
+/// For an owned domain item in a stream, construct a temporary view borrowing
+/// the item's fields inside `Encodable::encode`, then encode this wrapper
+/// before returning. The stream owns the domain item; the view only borrows it
+/// for the duration of encoding.
+///
+/// This uses the view's serialization semantics. In particular, Buffa views
+/// omit registered protobuf extensions from JSON. Use [`JsonCompatibleView`]
+/// when those extensions must be recovered through the owned message.
+/// Constructing a view and serializing it can still allocate; this wrapper
+/// removes the conversion through an owned protobuf message, not all allocations.
+#[derive(Clone, Debug)]
+pub struct JsonView<B> {
+    body: B,
+}
+
+/// Wraps a response view for direct ProtoJSON and delegated protobuf encoding.
+///
+/// Unlike [`json_compatible_view`], this requires the body to implement
+/// [`Serialize`] and never falls back through an owned message for JSON.
+#[must_use]
+pub fn json_view<B>(body: B) -> JsonView<B> {
+    JsonView { body }
+}
+
+impl<M, B> Encodable<M> for JsonView<B>
+where
+    B: Encodable<M> + Serialize,
+{
+    fn encode(&self, codec: CodecFormat) -> Result<buffa::bytes::Bytes, ConnectError> {
+        match codec {
+            CodecFormat::Json => serde_json::to_vec(&self.body)
+                .map(buffa::bytes::Bytes::from)
+                .map_err(|err| {
+                    ConnectError::internal(format!("failed to encode JSON response view: {err}"))
+                }),
+            _ => self.body.encode(codec),
+        }
+    }
+
+    fn encode_segments(&self, codec: CodecFormat) -> Result<EncodedBody, ConnectError> {
+        match codec {
+            CodecFormat::Json => self.encode(codec).map(EncodedBody::from),
+            _ => self.body.encode_segments(codec),
+        }
+    }
+}
+
 /// Wraps a response body so JSON encoding can fall back through the Buffa owned
 /// message when the inner body's ConnectRPC encoder cannot produce JSON.
 ///
@@ -79,6 +137,8 @@ where
 /// This wrapper keeps protobuf output direct and handles JSON by encoding
 /// protobuf, decoding the owned output message, then serializing that owned
 /// message with Buffa's ProtoJSON serde implementation.
+/// For views with a suitable [`Serialize`] implementation, [`JsonView`] avoids
+/// that conversion by serializing the view directly.
 #[derive(Clone, Debug)]
 pub struct JsonCompatibleView<B> {
     body: B,
@@ -221,11 +281,13 @@ mod tests {
     use buffa::bytes::Bytes;
     use buffa::encoding::Tag;
     use buffa::{DecodeContext, DecodeError, DefaultInstance, EncodeSink, Message, SizeCache};
-    use connectrpc::{Encodable as _, ErrorCode, Response};
+    use connectrpc::{CodecFormat, Encodable as _, ErrorCode, Response};
     use http::header::{CONTENT_TYPE, HeaderValue};
     use serde::Serialize;
 
-    use super::{VERSION, error_response, json_compatible_view, request_context, service_response};
+    use super::{
+        VERSION, error_response, json_compatible_view, json_view, request_context, service_response,
+    };
 
     #[test]
     fn exposes_package_version() {
@@ -308,6 +370,59 @@ mod tests {
     }
 
     #[test]
+    fn json_view_serializes_borrowed_fields_without_calling_inner_encoder() {
+        let number = 42;
+        let body = json_view(NumberView(&number));
+
+        assert_eq!(body.encode(CodecFormat::Json).unwrap(), b"42"[..]);
+        assert_eq!(
+            body.encode_segments(CodecFormat::Json)
+                .unwrap()
+                .into_contiguous(),
+            b"42"[..]
+        );
+    }
+
+    #[test]
+    fn json_view_delegates_protobuf_and_segmented_encoding() {
+        let number = 42;
+        let body = json_view(NumberView(&number));
+
+        assert!(body.encode(CodecFormat::Proto).unwrap().is_empty());
+        let err = body.encode_segments(CodecFormat::Proto).unwrap_err();
+        assert_eq!(err.code, ErrorCode::Unavailable);
+        assert_eq!(err.message.as_deref(), Some("segmented encoder called"));
+    }
+
+    #[test]
+    fn json_view_reports_serialization_errors_without_falling_back() {
+        let err = json_view(FailingJsonView)
+            .encode(CodecFormat::Json)
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::Internal);
+        assert!(err.message.unwrap().contains("view serialization failed"));
+    }
+
+    #[tokio::test]
+    async fn service_response_preserves_direct_json_serialization_errors() {
+        let response = service_response::<JsonNumber, _>(Response::ok(json_view(FailingJsonView)));
+
+        assert_eq!(response.status(), http::StatusCode::INTERNAL_SERVER_ERROR);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(error["code"], "internal");
+        assert!(
+            error["message"]
+                .as_str()
+                .unwrap()
+                .contains("view serialization failed")
+        );
+    }
+
+    #[test]
     fn service_response_uses_json_fallback_for_proto_only_body() {
         let response = service_response::<JsonNumber, _>(Ok(Response::new(ProtoOnly)));
 
@@ -373,6 +488,53 @@ mod tests {
                     "unsupported codec in test",
                 )),
             }
+        }
+    }
+
+    struct NumberView<'a>(&'a u8);
+
+    impl Serialize for NumberView<'_> {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.serialize_u8(*self.0)
+        }
+    }
+
+    impl connectrpc::Encodable<JsonNumber> for NumberView<'_> {
+        fn encode(&self, codec: CodecFormat) -> Result<Bytes, connectrpc::ConnectError> {
+            assert_eq!(
+                codec,
+                CodecFormat::Proto,
+                "JSON must use Serialize directly"
+            );
+            ProtoOnly.encode(codec)
+        }
+
+        fn encode_segments(
+            &self,
+            codec: CodecFormat,
+        ) -> Result<connectrpc::EncodedBody, connectrpc::ConnectError> {
+            assert_eq!(
+                codec,
+                CodecFormat::Proto,
+                "JSON must use Serialize directly"
+            );
+            Err(connectrpc::ConnectError::unavailable(
+                "segmented encoder called",
+            ))
+        }
+    }
+
+    struct FailingJsonView;
+
+    impl Serialize for FailingJsonView {
+        fn serialize<S: serde::Serializer>(&self, _serializer: S) -> Result<S::Ok, S::Error> {
+            Err(serde::ser::Error::custom("view serialization failed"))
+        }
+    }
+
+    impl connectrpc::Encodable<JsonNumber> for FailingJsonView {
+        fn encode(&self, _codec: CodecFormat) -> Result<Bytes, connectrpc::ConnectError> {
+            panic!("failed direct JSON serialization must not invoke the inner encoder")
         }
     }
 }

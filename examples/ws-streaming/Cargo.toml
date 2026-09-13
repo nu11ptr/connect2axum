@@ -22,6 +22,9 @@ path = "../../crates/connect2axum"
 workspace = true
 features = ["axum"]
 
+[dependencies.flexstr]
+workspace = true
+
 [dependencies.futures-util]
 version = "0.3"
 
@@ -38,7 +41,7 @@ features = ["derive"]
 [dependencies.tokio]
 version = "1"
 default-features = false
-features = ["macros", "net", "rt-multi-thread", "time"]
+features = ["macros", "net", "rt-multi-thread", "sync", "time"]
 
 # Test dependencies
 

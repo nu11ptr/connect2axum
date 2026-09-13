@@ -5,8 +5,10 @@ use std::sync::Arc;
 use axum::Router;
 use axum::routing::get;
 use connectrpc::{
-    RequestContext, Response, ServiceRequest, ServiceResult, ServiceStream, StreamMessage,
+    CodecFormat, ConnectError, Encodable, EncodedBody, RequestContext, Response, ServiceRequest,
+    ServiceResult, ServiceStream, StreamMessage,
 };
+use flexstr::{IntoOptimizedFlexStr as _, SharedStr};
 use futures_util::StreamExt as _;
 
 #[rustfmt::skip]
@@ -26,8 +28,34 @@ pub mod rest;
 pub mod ws;
 
 use connect::streaming::v1::GreeterServiceExt as _;
-use proto::streaming::v1::__buffa::view::HelloRequestView;
+use proto::streaming::v1::__buffa::view::{HelloReplyView, HelloRequestView};
 use proto::streaming::v1::{HelloReply, HelloRequest, HelloSummary};
+
+/// A domain reply owns its data while streams and channels retain it. The
+/// generated protobuf view borrows that data only for the duration of encoding.
+#[derive(Clone, Debug)]
+pub struct Greeting {
+    message: SharedStr,
+}
+
+impl Greeting {
+    fn view(&self) -> HelloReplyView<'_> {
+        HelloReplyView {
+            message: self.message.as_ref(),
+            ..Default::default()
+        }
+    }
+}
+
+impl Encodable<HelloReply> for Greeting {
+    fn encode(&self, codec: CodecFormat) -> Result<buffa::bytes::Bytes, ConnectError> {
+        connect2axum::json_view(self.view()).encode(codec)
+    }
+
+    fn encode_segments(&self, codec: CodecFormat) -> Result<EncodedBody, ConnectError> {
+        connect2axum::json_view(self.view()).encode_segments(codec)
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct Greeter;
@@ -37,7 +65,7 @@ impl connect::streaming::v1::GreeterService for Greeter {
         &self,
         _ctx: RequestContext,
         request: ServiceRequest<'_, HelloRequest>,
-    ) -> ServiceResult<ServiceStream<HelloReply>> {
+    ) -> ServiceResult<ServiceStream<Greeting>> {
         let stream = futures_util::stream::iter([
             Ok(reply(&request, "Hello")),
             Ok(reply(&request, "Welcome aboard")),
@@ -67,7 +95,7 @@ impl connect::streaming::v1::GreeterService for Greeter {
         &self,
         _ctx: RequestContext,
         requests: ServiceStream<StreamMessage<HelloRequest>>,
-    ) -> ServiceResult<ServiceStream<HelloReply>> {
+    ) -> ServiceResult<ServiceStream<Greeting>> {
         let stream = requests.map(|request| request.map(|request| reply(request.view(), "Hello")));
         Response::stream_ok(stream)
     }
@@ -93,10 +121,9 @@ pub fn app() -> Router {
         .fallback_service(connect.into_axum_service())
 }
 
-fn reply(request: &HelloRequestView<'_>, prefix: &str) -> HelloReply {
-    HelloReply {
-        message: format!("{prefix}, {} {}!", request.first_name, request.last_name),
-        ..Default::default()
+fn reply(request: &HelloRequestView<'_>, prefix: &str) -> Greeting {
+    Greeting {
+        message: format!("{prefix}, {} {}!", request.first_name, request.last_name).into_opt(),
     }
 }
 
@@ -107,13 +134,112 @@ fn full_name(request: &HelloRequestView<'_>) -> String {
 #[cfg(test)]
 mod tests {
     use axum::body::{Body, to_bytes};
+    use buffa::Message as _;
+    use buffa::bytes::{Bytes, BytesMut};
+    use connectrpc::envelope::{Envelope, flags};
+    use connectrpc::{CodecFormat, Encodable as _};
+    use flexstr::ToOwnedFlexStr as _;
     use futures_util::{SinkExt as _, StreamExt as _};
     use http::header::CONTENT_TYPE;
     use http::{Method, Request, StatusCode};
     use tokio_tungstenite::tungstenite::Message;
     use tower::ServiceExt as _;
 
-    use super::app;
+    use super::{Greeting, HelloReply, HelloRequest, app};
+
+    #[tokio::test]
+    async fn domain_replies_cross_a_channel_and_preserve_protojson() {
+        let messages = ["", "quoted \"text\", slash \\, newline\n雪"];
+        let (send, mut recv) = tokio::sync::mpsc::channel(1);
+        let producer = tokio::spawn(async move {
+            for message in messages {
+                send.send(Greeting {
+                    message: message.to_owned_opt(),
+                })
+                .await
+                .expect("send domain reply");
+            }
+        });
+
+        for message in messages {
+            let greeting = recv.recv().await.expect("receive domain reply");
+            let json = greeting.encode(CodecFormat::Json).expect("encode JSON");
+            let proto = greeting
+                .encode(CodecFormat::Proto)
+                .expect("encode protobuf");
+            let decoded = HelloReply::decode_from_slice(&proto).expect("decode protobuf");
+
+            assert_eq!(decoded.message, message);
+            assert_eq!(json.as_ref(), serde_json::to_vec(&decoded).unwrap());
+            if message.is_empty() {
+                assert_eq!(json.as_ref(), b"{}");
+            } else {
+                assert_eq!(
+                    serde_json::from_slice::<HelloReply>(&json).unwrap(),
+                    decoded
+                );
+            }
+        }
+        assert!(recv.recv().await.is_none());
+        producer.await.expect("producer completes");
+    }
+
+    #[tokio::test]
+    async fn native_connect_server_streams_domain_replies_as_json_and_protobuf() {
+        for (codec, content_type) in [
+            (CodecFormat::Json, "application/connect+json"),
+            (CodecFormat::Proto, "application/connect+proto"),
+        ] {
+            let request = HelloRequest {
+                first_name: "Jane \"JJ\"".into(),
+                last_name: "Doe".into(),
+                ..Default::default()
+            };
+            let payload = match codec {
+                CodecFormat::Json => Bytes::from(serde_json::to_vec(&request).unwrap()),
+                CodecFormat::Proto => request.encode_to_bytes(),
+                _ => unreachable!(),
+            };
+            let response = app()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/streaming.v1.GreeterService/Expand")
+                        .header(CONTENT_TYPE, content_type)
+                        .header("connect-protocol-version", "1")
+                        .body(Body::from(Envelope::data(payload).encode()))
+                        .expect("request builds"),
+                )
+                .await
+                .expect("router responds");
+
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()[CONTENT_TYPE], content_type);
+            let body = to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("response body bytes");
+            let mut body = BytesMut::from(body.as_ref());
+            for prefix in ["Hello", "Welcome aboard"] {
+                let envelope = Envelope::decode(&mut body)
+                    .expect("valid envelope")
+                    .expect("reply envelope");
+                assert_eq!(envelope.flags, flags::DATA);
+                let reply: HelloReply = match codec {
+                    CodecFormat::Json => serde_json::from_slice(&envelope.data).unwrap(),
+                    CodecFormat::Proto => HelloReply::decode_from_slice(&envelope.data).unwrap(),
+                    _ => unreachable!(),
+                };
+                assert_eq!(reply.message, format!("{prefix}, Jane \"JJ\" Doe!"));
+            }
+            let end = Envelope::decode(&mut body)
+                .expect("valid end envelope")
+                .expect("end of stream");
+            assert_eq!(end.flags, flags::END_STREAM);
+            let end: serde_json::Value = serde_json::from_slice(&end.data).unwrap();
+            assert!(end.get("error").is_none(), "{end}");
+            assert!(body.is_empty());
+        }
+    }
 
     #[tokio::test]
     async fn generated_websocket_routes_do_not_include_unary_methods() {

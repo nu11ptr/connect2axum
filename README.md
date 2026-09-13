@@ -25,6 +25,54 @@ connect2axum bindings together. Service implementations now receive
 bidirectional streaming calls. Read stream-item fields through `.view()` or
 the generated accessor methods.
 
+## Domain-owned Responses
+
+An application can keep its own response types and borrow their fields only
+while encoding. Implement ConnectRPC's `Encodable<Message>` for the domain
+type and use `connect2axum::json_view` around a temporary Buffa view:
+
+```rust
+use buffa::bytes::Bytes;
+use connectrpc::{CodecFormat, ConnectError, Encodable};
+use flexstr::SharedStr;
+
+// HelloReply and HelloReplyView are the generated message and view types.
+struct Greeting {
+    message: SharedStr,
+}
+
+impl Encodable<HelloReply> for Greeting {
+    fn encode(&self, codec: CodecFormat) -> Result<Bytes, ConnectError> {
+        connect2axum::json_view(HelloReplyView {
+            message: self.message.as_ref(),
+            ..Default::default()
+        })
+        .encode(codec)
+    }
+}
+```
+
+The stream owns each `Greeting`, so it can cross task/channel boundaries.
+The view borrows its fields only during encoding; no generated owned
+`HelloReply` or intermediate protobuf buffer is needed to produce JSON.
+This does not require `SharedStr` to implement Buffa field traits because the
+generated view uses `&str`.
+
+`json_view` serializes JSON directly through the view's `Serialize` impl and
+delegates other codecs to its `Encodable` impl. Enable Buffa JSON generation
+for the view. Both implementations must represent the same protobuf message;
+an arbitrary domain struct's derived serde is not necessarily ProtoJSON.
+The same response item works with Connect/gRPC, REST, and JSON WebSocket
+adapters. See the [WebSocket streaming example](examples/ws-streaming/src/lib.rs)
+for a complete implementation and transport tests.
+
+The existing `json_compatible_view` wrapper remains available for bodies
+without a suitable `Serialize` impl. It uses the protobuf-to-owned-message
+fallback for JSON. It is also appropriate when registered protobuf extensions
+must appear in JSON: Buffa's generated view serializer omits those extensions.
+Direct view encoding can still allocate output buffers or temporary view
+containers; it does not guarantee allocation-free serialization.
+
 ## Plugin Options
 
 Options are passed as comma-separated `name=value` pairs in `buf.gen.yaml`.

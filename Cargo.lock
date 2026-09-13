@@ -1580,6 +1580,7 @@ dependencies = [
  "buffa",
  "connect2axum",
  "connectrpc",
+ "flexstr",
  "futures-util",
  "http",
  "http-body",
