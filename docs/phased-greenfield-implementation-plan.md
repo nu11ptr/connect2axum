@@ -1,5 +1,9 @@
 # Phased Greenfield Implementation Plan
 
+This document records the original implementation phases. The
+`json_compatible_view` response wrapper described below was removed in 0.4;
+use `json_view` with Buffa's generated view serializer for direct JSON output.
+
 ## Ground Rules
 
 `tonic2axum` is the read-only reference implementation. All implementation

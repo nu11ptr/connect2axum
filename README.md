@@ -17,13 +17,18 @@ This installs:
 - `protoc-gen-connect2openapi`
 - `protoc-gen-connect2asyncapi`
 
-`connect2axum` 0.3 and `connect2axum-codegen` 0.5 target Buffa 0.9 and
-ConnectRPC 0.9. When upgrading, regenerate the Buffa, ConnectRPC, and
-connect2axum bindings together. Service implementations now receive
+`connect2axum` 0.4 and `connect2axum-codegen` 0.5 target Buffa 0.9 and
+ConnectRPC 0.9. When upgrading from upstream versions before 0.9, regenerate
+the Buffa, ConnectRPC, and connect2axum bindings together. Service implementations receive
 `ServiceRequest<'_, Request>` for unary and server-streaming calls, and
 `InboundStream<Request>` (items of `StreamMessage<Request>`) for client and
 bidirectional streaming calls. Read stream-item fields through `.view()` or
 the generated accessor methods.
+
+Version 0.4 removes `JsonCompatibleView` and `json_compatible_view`. Use
+`json_view` for response views with a ProtoJSON `Serialize` implementation,
+or return an owned message. `json_owned_view` remains the input helper for
+decoding incoming JSON into an `OwnedView`.
 
 ## Domain-owned Responses
 
@@ -66,10 +71,8 @@ The same response item works with Connect/gRPC, REST, and JSON WebSocket
 adapters. See the [WebSocket streaming example](examples/ws-streaming/src/lib.rs)
 for a complete implementation and transport tests.
 
-The existing `json_compatible_view` wrapper remains available for bodies
-without a suitable `Serialize` impl. It uses the protobuf-to-owned-message
-fallback for JSON. It is also appropriate when registered protobuf extensions
-must appear in JSON: Buffa's generated view serializer omits those extensions.
+Return an owned message when registered protobuf extensions must appear in
+JSON: Buffa's generated view serializer omits those extensions.
 Direct view encoding can still allocate output buffers or temporary view
 containers; it does not guarantee allocation-free serialization.
 

@@ -88,8 +88,8 @@ where
 /// for the duration of encoding.
 ///
 /// This uses the view's serialization semantics. In particular, Buffa views
-/// omit registered protobuf extensions from JSON. Use [`JsonCompatibleView`]
-/// when those extensions must be recovered through the owned message.
+/// omit registered protobuf extensions from JSON. Return an owned message
+/// when those extensions must be included in JSON.
 /// Constructing a view and serializing it can still allocate; this wrapper
 /// removes the conversion through an owned protobuf message, not all allocations.
 #[derive(Clone, Debug)]
@@ -99,8 +99,8 @@ pub struct JsonView<B> {
 
 /// Wraps a response view for direct ProtoJSON and delegated protobuf encoding.
 ///
-/// Unlike [`json_compatible_view`], this requires the body to implement
-/// [`Serialize`] and never falls back through an owned message for JSON.
+/// Requires the body to implement [`Serialize`] and never falls back through
+/// an owned message for JSON.
 #[must_use]
 pub fn json_view<B>(body: B) -> JsonView<B> {
     JsonView { body }
@@ -125,40 +125,6 @@ where
         match codec {
             CodecFormat::Json => self.encode(codec).map(EncodedBody::from),
             _ => self.body.encode_segments(codec),
-        }
-    }
-}
-
-/// Wraps a response body so JSON encoding can fall back through the Buffa owned
-/// message when the inner body's ConnectRPC encoder cannot produce JSON.
-///
-/// Buffa generates ProtoJSON `Serialize` impls for views, but ConnectRPC's
-/// generated `Encodable` impl for views still returns `Unimplemented` for JSON.
-/// This wrapper keeps protobuf output direct and handles JSON by encoding
-/// protobuf, decoding the owned output message, then serializing that owned
-/// message with Buffa's ProtoJSON serde implementation.
-/// For views with a suitable [`Serialize`] implementation, [`JsonView`] avoids
-/// that conversion by serializing the view directly.
-#[derive(Clone, Debug)]
-pub struct JsonCompatibleView<B> {
-    body: B,
-}
-
-/// Creates a [`JsonCompatibleView`] response wrapper.
-pub fn json_compatible_view<B>(body: B) -> JsonCompatibleView<B> {
-    JsonCompatibleView { body }
-}
-
-impl<M, B> Encodable<M> for JsonCompatibleView<B>
-where
-    M: Message + Serialize,
-    B: Encodable<M>,
-{
-    fn encode(&self, codec: CodecFormat) -> Result<buffa::bytes::Bytes, ConnectError> {
-        match codec {
-            CodecFormat::Proto => self.body.encode(CodecFormat::Proto),
-            CodecFormat::Json => encode_json_compatible::<M, B>(&self.body),
-            _ => self.body.encode(codec),
         }
     }
 }
@@ -285,9 +251,7 @@ mod tests {
     use http::header::{CONTENT_TYPE, HeaderValue};
     use serde::Serialize;
 
-    use super::{
-        VERSION, error_response, json_compatible_view, json_view, request_context, service_response,
-    };
+    use super::{VERSION, error_response, json_view, request_context, service_response};
 
     #[test]
     fn exposes_package_version() {
@@ -358,15 +322,6 @@ mod tests {
         ));
 
         assert_eq!(response.status(), http::StatusCode::BAD_REQUEST);
-    }
-
-    #[test]
-    fn json_compatible_view_falls_back_through_owned_message() {
-        let encoded = json_compatible_view(ProtoOnly)
-            .encode(connectrpc::CodecFormat::Json)
-            .expect("JSON fallback encodes");
-
-        assert_eq!(encoded, Bytes::from_static(b"42"));
     }
 
     #[test]
