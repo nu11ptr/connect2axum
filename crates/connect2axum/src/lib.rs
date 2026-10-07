@@ -13,10 +13,12 @@ use http::{Extensions, HeaderMap, StatusCode};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+pub mod query;
 pub mod streaming;
 
 const JSON_CONTENT_TYPE: &str = "application/json";
 
+pub use query::ProtoQuery;
 pub use streaming::http::{JsonLines, ndjson_request_stream, stream_response};
 pub use streaming::ws::{
     close_ws, connect_error_to_ws_close_frame, make_ws_request, make_ws_stream_request,

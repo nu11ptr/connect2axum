@@ -392,23 +392,56 @@ fn validate_http_binding(
     })?;
 
     for path_variable in &binding.path_variables {
-        if !input
-            .fields
-            .iter()
-            .any(|field| field.name.as_ref() == path_variable.as_ref())
-        {
-            return Err(UniError::from_kind_context(
-                CodegenErrKind::PathFieldNotFound,
-                format!(
-                    "path field not found: {} on request message {}",
-                    path_variable.as_ref(),
-                    input.full_name.as_ref()
-                ),
-            ));
-        }
+        resolve_field_path(input, path_variable.as_ref(), |name| {
+            message_index.get(name)
+        })?;
     }
 
     Ok(())
+}
+
+/// Resolves a dotted HTTP field path (`a.b.c`) to the fields along it. Every
+/// field except the last must be a singular message.
+pub fn resolve_field_path<'a>(
+    message: &'a Message,
+    path: &str,
+    lookup: impl Fn(&str) -> Option<&'a Message>,
+) -> CodegenResult<Vec<&'a Field>> {
+    let not_found = || {
+        UniError::from_kind_context(
+            CodegenErrKind::PathFieldNotFound,
+            format!(
+                "path field not found: {path} on request message {}",
+                message.full_name.as_ref()
+            ),
+        )
+    };
+    let mut current = message;
+    let mut fields: Vec<&Field> = Vec::new();
+    for segment in path.split('.') {
+        if let Some(parent) = fields.last() {
+            current = match &parent.kind {
+                FieldKind::Message(name) | FieldKind::Group(name)
+                    if parent.label != Some(FieldLabel::Repeated) =>
+                {
+                    lookup(name.as_ref()).ok_or_else(not_found)?
+                }
+                _ => {
+                    return Err(UniError::from_kind_context(
+                        CodegenErrKind::UnsupportedHttpRule,
+                        format!("path field {path} must only traverse singular message fields"),
+                    ));
+                }
+            };
+        }
+        let field = current
+            .fields
+            .iter()
+            .find(|field| field.name.as_ref() == segment)
+            .ok_or_else(not_found)?;
+        fields.push(field);
+    }
+    Ok(fields)
 }
 
 fn field_kind(field: &FieldDescriptorProto) -> FieldKind {

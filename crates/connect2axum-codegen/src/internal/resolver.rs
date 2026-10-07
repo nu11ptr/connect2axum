@@ -111,10 +111,16 @@ impl<'a> TypeResolver<'a> {
             }
         };
 
-        if field.label == Some(FieldLabel::Repeated) {
-            Ok(RustPath::new(format!("::std::vec::Vec<{base}>")))
-        } else {
-            Ok(RustPath::new(base))
+        match (&field.kind, field.label) {
+            (_, Some(FieldLabel::Repeated)) => {
+                Ok(RustPath::new(format!("::std::vec::Vec<{base}>")))
+            }
+            // `Option` keeps an absent message unset when converted into
+            // Buffa's `MessageField`.
+            (FieldKind::Group(_) | FieldKind::Message(_), _) => {
+                Ok(RustPath::new(format!("::core::option::Option<{base}>")))
+            }
+            _ => Ok(RustPath::new(base)),
         }
     }
 

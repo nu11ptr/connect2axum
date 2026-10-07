@@ -141,7 +141,7 @@ fn parse_path_variables(path: &str) -> CodegenResult<Vec<flexstr::SharedStr>> {
             ));
         };
 
-        if !is_simple_field_name(field_name) {
+        if !field_name.split('.').all(is_simple_field_name) {
             return Err(UniError::from_kind_context(
                 CodegenErrKind::UnsupportedHttpRule,
                 format!("unsupported google.api.http path template: {path}"),
@@ -223,15 +223,21 @@ mod tests {
     }
 
     #[test]
-    fn rejects_nested_path_variables() {
+    fn extracts_nested_path_variables() {
         let method = method_with_http(http_rule(2, "/v1/{message.name}", None));
 
-        let err = extract_http_binding(&method).unwrap_err();
+        let binding = extract_http_binding(&method).unwrap().unwrap();
 
-        assert!(
-            err.to_string()
-                .contains("unsupported google.api.http path template")
-        );
+        assert_eq!(binding.path_variables[0].as_ref(), "message.name");
+    }
+
+    #[test]
+    fn rejects_empty_nested_path_segments() {
+        for path in ["/v1/{.name}", "/v1/{message.}", "/v1/{message..name}"] {
+            let method = method_with_http(http_rule(2, path, None));
+
+            assert!(extract_http_binding(&method).is_err(), "{path}");
+        }
     }
 
     fn method_with_http(http_rule: Vec<u8>) -> MethodDescriptorProto {

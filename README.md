@@ -76,6 +76,15 @@ JSON: Buffa's generated view serializer omits those extensions.
 Direct view encoding can still allocate output buffers or temporary view
 containers; it does not guarantee allocation-free serialization.
 
+## Nested Fields
+
+Path variables may bind a field inside singular messages, such as
+`get: "/symbols/{datasource.symbol.ticker}"`. The rest of `datasource` still
+comes from the body or query; the path value overrides only that field.
+
+Query parameters accept dotted paths into nested messages, using protobuf or
+JSON field names: `?datasource.symbol.exchange=NASDAQ&datasource.workspaceName=demo`.
+
 ## Plugin Options
 
 Options are passed as comma-separated `name=value` pairs in `buf.gen.yaml`.

@@ -22,6 +22,7 @@ axum-extra.workspace = true
 bytes.workspace = true
 buffa.workspace = true
 connectrpc.workspace = true
+form_urlencoded.workspace = true
 futures-util.workspace = true
 http.workspace = true
 serde.workspace = true

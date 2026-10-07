@@ -224,6 +224,7 @@ dependencies = [
  "buffa",
  "bytes",
  "connectrpc",
+ "form_urlencoded",
  "futures-util",
  "http",
  "serde",

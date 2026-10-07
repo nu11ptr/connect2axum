@@ -15,8 +15,8 @@ use crate::internal::ir::{
 use crate::internal::options::CodegenOptions;
 use crate::internal::resolver::TypeResolver;
 use crate::internal::shape::{
-    FieldSource, FileShapes, GeneratedDto, RequestPartShape, RequestReconstruction, RequestShape,
-    ShapeField, plan_file_shapes,
+    FieldSource, FileShapes, GeneratedDto, PathField, RequestPartShape, RequestReconstruction,
+    RequestShape, ShapeField, plan_file_shapes,
 };
 
 const REST_MODULE_SUFFIX: &str = "_rest";
@@ -126,7 +126,7 @@ impl<'a> RustGenerator<'a> {
 
                 use std::sync::Arc;
 
-                use axum::extract::{Path, Query, State};
+                use axum::extract::{Path, State};
                 use axum::Json;
                 use http::{Extensions, HeaderMap};
 
@@ -205,7 +205,7 @@ impl<'a> RustGenerator<'a> {
 
         if let Some(query_type) = shape.query_shape.as_ref().map(part_type).transpose()? {
             params.push(quote! {
-                Query(#query_value): Query<#query_type>
+                #runtime::ProtoQuery(#query_value): #runtime::ProtoQuery<#query_type>
             });
         }
 
@@ -550,7 +550,7 @@ fn path_extractor_param(
         [] => Ok(None),
         [field] => {
             let binding = path_field_binding(field, resolver, options)?;
-            let field_type = parse_type(field.rust_type.as_str(), "path extractor type")?;
+            let field_type = parse_type(field.field.rust_type.as_str(), "path extractor type")?;
             Ok(Some(quote! {
                 Path(#binding): Path<#field_type>
             }))
@@ -562,7 +562,7 @@ fn path_extractor_param(
                 .collect::<CodegenResult<Vec<_>>>()?;
             let field_types = fields
                 .iter()
-                .map(|field| parse_type(field.rust_type.as_str(), "path extractor type"))
+                .map(|field| parse_type(field.field.rust_type.as_str(), "path extractor type"))
                 .collect::<CodegenResult<Vec<_>>>()?;
             let tuple_type = parse_quoted_type(quote! {
                 (#(#field_types),*)
@@ -575,6 +575,57 @@ fn path_extractor_param(
 }
 
 fn request_reconstruction_tokens(
+    shape: &RequestShape,
+    request_value: &Ident,
+    query_value: &Ident,
+    body_value: &Ident,
+    resolver: &TypeResolver<'_>,
+    options: &CodegenOptions,
+) -> CodegenResult<TokenStream> {
+    let construction = request_construction_tokens(
+        shape,
+        request_value,
+        query_value,
+        body_value,
+        resolver,
+        options,
+    )?;
+    // Nested path variables override a single field inside the request
+    // after it has been built from the other parts.
+    let overrides = shape
+        .path_fields
+        .iter()
+        .filter(|field| field.is_nested())
+        .map(|field| {
+            let binding = path_field_binding(field, resolver, options)?;
+            let segments = field
+                .segments
+                .iter()
+                .map(|segment| {
+                    parse_ident(
+                        &make_field_ident(segment.as_ref()).to_string(),
+                        "nested path field",
+                    )
+                })
+                .collect::<CodegenResult<Vec<_>>>()?;
+            let (leaf, parents) = segments.split_last().expect("nested path segments");
+            Ok(quote! {
+                #request_value #(.#parents.get_or_insert_default())* .#leaf = #binding;
+            })
+        })
+        .collect::<CodegenResult<Vec<_>>>()?;
+
+    if overrides.is_empty() {
+        return Ok(construction);
+    }
+    Ok(quote! {
+        #construction
+        let mut #request_value = #request_value;
+        #(#overrides)*
+    })
+}
+
+fn request_construction_tokens(
     shape: &RequestShape,
     request_value: &Ident,
     query_value: &Ident,
@@ -611,9 +662,15 @@ fn request_reconstruction_tokens(
                         resolver,
                         options,
                     )?;
-                    Ok(quote! {
-                        #field_ident: #value
-                    })
+                    if assignment.singular_message {
+                        Ok(quote! {
+                            #field_ident: #value.into()
+                        })
+                    } else {
+                        Ok(quote! {
+                            #field_ident: #value
+                        })
+                    }
                 })
                 .collect::<CodegenResult<Vec<_>>>()?;
 
@@ -682,13 +739,13 @@ fn part_field_expr(
 }
 
 fn path_field_binding(
-    field: &ShapeField,
+    field: &PathField,
     resolver: &TypeResolver<'_>,
     options: &CodegenOptions,
 ) -> CodegenResult<Ident> {
     parse_ident(
         resolver
-            .value_ident(field.field.name.as_ref(), options)
+            .value_ident(&field.segments.join("_"), options)
             .as_ref(),
         "path field binding",
     )
@@ -778,7 +835,7 @@ mod tests {
 pub mod test_service_rest {
     #![allow(unused_imports)]
     use std::sync::Arc;
-    use axum::extract::{Path, Query, State};
+    use axum::extract::{Path, State};
     use axum::Json;
     use http::{Extensions, HeaderMap};
     #[derive(Clone, Debug, Default, serde::Deserialize)]
@@ -791,12 +848,14 @@ pub mod test_service_rest {
         )]
         pub test_type: ::buffa::EnumValue<crate::proto::test::v1::Tester>,
         #[serde(rename = "tester")]
-        pub tester: crate::proto::test::v1::Nested,
+        pub tester: ::core::option::Option<crate::proto::test::v1::Nested>,
     }
     pub async fn get_one<S>(
         State(service__): State<Arc<S>>,
         Path(data__): Path<::std::string::String>,
-        Query(query__): Query<TestRequestQuery__>,
+        ::connect2axum::ProtoQuery(
+            query__,
+        ): ::connect2axum::ProtoQuery<TestRequestQuery__>,
         headers__: HeaderMap,
         extensions__: Extensions,
     ) -> http::Response<axum::body::Body>
@@ -807,7 +866,7 @@ pub mod test_service_rest {
         let request__ = crate::proto::test::v1::TestRequest {
             data: data__,
             test_type: query__.test_type,
-            tester: query__.tester,
+            tester: query__.tester.into(),
             ..::core::default::Default::default()
         };
         let request__ = match ::connect2axum::owned_view::<
@@ -843,7 +902,7 @@ pub mod test_service_rest {
         let request__ = crate::proto::test::v1::TestRequest {
             data: data__,
             test_type: test_type__,
-            tester: body__,
+            tester: body__.into(),
             ..::core::default::Default::default()
         };
         let request__ = match ::connect2axum::owned_view::<
@@ -926,6 +985,24 @@ pub mod test_service_rest {
 }
 "#
         );
+    }
+
+    #[test]
+    fn nested_path_field_overrides_the_reconstructed_request() {
+        let mut request = request();
+        request.proto_file[0].service[0].method[0].options =
+            http_rule(2, "/test/{tester.data}", None);
+
+        let response = try_generate_rest(&request).unwrap();
+        let content = response.file[0].content.as_deref().unwrap();
+        let compact = content.split_whitespace().collect::<String>();
+
+        assert!(content.contains("Path(tester_data__): Path<::std::string::String>"));
+        assert!(compact.contains(
+            "letrequest__=query__;letmutrequest__=request__;\
+             request__.tester.get_or_insert_default().data=tester_data__;"
+        ));
+        assert!(content.contains(".route(\"/test/{tester.data}\""));
     }
 
     #[test]
@@ -1135,6 +1212,7 @@ pub mod test_service_rest {
                 },
                 DescriptorProto {
                     name: Some("Nested".into()),
+                    field: vec![field("data", 1, Type::TYPE_STRING, None)],
                     ..Default::default()
                 },
                 DescriptorProto {
@@ -1440,6 +1518,34 @@ extern crate self as connectrpc;
 extern crate self as http;
 
 pub struct Json<T>(pub T);
+pub struct ProtoQuery<T>(pub T);
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MessageField<T>(pub Option<T>);
+
+impl<T: Default> MessageField<T> {
+    pub fn get_or_insert_default(&mut self) -> &mut T {
+        self.0.get_or_insert_with(T::default)
+    }
+}
+
+impl<T> From<T> for MessageField<T> {
+    fn from(value: T) -> Self {
+        Self(Some(value))
+    }
+}
+
+impl<T> From<Option<T>> for MessageField<T> {
+    fn from(value: Option<T>) -> Self {
+        Self(value)
+    }
+}
+
+impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for MessageField<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Option::<T>::deserialize(d).map(Self)
+    }
+}
 
 pub mod body {
     #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1454,7 +1560,6 @@ pub mod body {
 
 pub mod extract {
     pub struct Path<T>(pub T);
-    pub struct Query<T>(pub T);
     pub struct State<T>(pub T);
 }
 
@@ -1686,7 +1791,7 @@ pub mod proto {
             pub struct TestRequest {
                 pub data: ::std::string::String,
                 pub test_type: ::buffa::EnumValue<Tester>,
-                pub tester: Nested,
+                pub tester: crate::MessageField<Nested>,
             }
 
             #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize)]
@@ -1740,7 +1845,8 @@ mod generated_handler_tests {
     use std::sync::{Arc, Mutex};
     use std::task::{Context, Poll};
 
-    use crate::extract::{Path, Query, State};
+    use crate::ProtoQuery as Query;
+    use crate::extract::{Path, State};
     use crate::proto::test::v1::{EmptyRequest, Nested, TestRequest, TestResponse, Tester};
     use crate::{Extensions, HeaderMap, Json, Response, ServiceResult};
 
@@ -1821,9 +1927,9 @@ mod generated_handler_tests {
             Path("alpha".to_owned()),
             Query(crate::test_service_rest::TestRequestQuery__ {
                 test_type: Tester::Known.into(),
-                tester: Nested {
+                tester: Some(Nested {
                     data: "query".to_owned(),
-                },
+                }),
             }),
             HeaderMap,
             Extensions,
@@ -1837,7 +1943,8 @@ mod generated_handler_tests {
                 test_type: Tester::Known.into(),
                 tester: Nested {
                     data: "query".to_owned(),
-                },
+                }
+                .into(),
             })]
         );
     }
@@ -1851,9 +1958,9 @@ mod generated_handler_tests {
             Path("alpha".to_owned()),
             Query(crate::test_service_rest::TestRequestQuery__ {
                 test_type: Tester::Known.into(),
-                tester: Nested {
+                tester: Some(Nested {
                     data: "query".to_owned(),
-                },
+                }),
             }),
             HeaderMap,
             Extensions,
@@ -1885,7 +1992,8 @@ mod generated_handler_tests {
                 test_type: Tester::Known.into(),
                 tester: Nested {
                     data: "body".to_owned(),
-                },
+                }
+                .into(),
             })]
         );
     }
@@ -1898,7 +2006,8 @@ mod generated_handler_tests {
             test_type: Tester::Known.into(),
             tester: Nested {
                 data: "body".to_owned(),
-            },
+            }
+            .into(),
         };
 
         let response = block_on(crate::test_service_rest::patch_all(

@@ -5,7 +5,8 @@ use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
 use crate::internal::ir::{
-    CommentSet, DescriptorIr, Field, FieldKind, HttpBinding, HttpBody, Message, Method, ProtoFile,
+    CommentSet, DescriptorIr, Field, FieldKind, FieldLabel, HttpBinding, HttpBody, Message, Method,
+    ProtoFile, resolve_field_path,
 };
 use crate::internal::options::CodegenOptions;
 use crate::internal::resolver::{RustPath, TypeResolver};
@@ -23,7 +24,7 @@ pub struct RequestShape {
     pub method: SharedStr,
     pub request_type: RustPath,
     pub request_view_type: RustPath,
-    pub path_fields: Vec<ShapeField>,
+    pub path_fields: Vec<PathField>,
     pub query_shape: Option<RequestPartShape>,
     pub body_shape: Option<RequestPartShape>,
     pub reconstruction: RequestReconstruction,
@@ -33,6 +34,21 @@ pub struct RequestShape {
 pub struct ShapeField {
     pub field: Field,
     pub rust_type: RustPath,
+}
+
+/// A path variable bound to a field of the request message. Nested variables
+/// (`a.b.c`) are applied to the request after it is built from the other parts.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PathField {
+    /// Field names from the request message down to the bound field.
+    pub segments: Vec<SharedStr>,
+    pub field: ShapeField,
+}
+
+impl PathField {
+    pub fn is_nested(&self) -> bool {
+        self.segments.len() > 1
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -63,6 +79,8 @@ pub enum RequestReconstruction {
 pub struct FieldAssignment {
     pub field: SharedStr,
     pub source: FieldSource,
+    /// Singular message fields are stored in Buffa's `MessageField` wrapper.
+    pub singular_message: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -212,11 +230,29 @@ impl<'a> RequestPlanner<'a> {
         &self,
         work: &mut RequestWork,
         binding: &HttpBinding,
-    ) -> CodegenResult<Vec<ShapeField>> {
+    ) -> CodegenResult<Vec<PathField>> {
         binding
             .path_variables
             .iter()
             .map(|path_variable| {
+                let segments = path_variable
+                    .split('.')
+                    .map(|segment| segment.to_owned_opt())
+                    .collect();
+                if path_variable.contains('.') {
+                    // The top-level field stays in `work`; the rest of it still
+                    // comes from the body or query.
+                    let field = resolve_field_path(&work.message, path_variable, |name| {
+                        self.ir.message(name)
+                    })?
+                    .pop()
+                    .cloned()
+                    .expect("field paths have at least one segment");
+                    return Ok(PathField {
+                        segments,
+                        field: self.shape_field(field)?,
+                    });
+                }
                 let field = work.remove_field(path_variable.as_ref()).ok_or_else(|| {
                     UniError::from_kind_context(
                         CodegenErrKind::PathFieldNotFound,
@@ -227,7 +263,10 @@ impl<'a> RequestPlanner<'a> {
                         ),
                     )
                 })?;
-                self.shape_field(field)
+                Ok(PathField {
+                    segments,
+                    field: self.shape_field(field)?,
+                })
             })
             .collect()
     }
@@ -374,7 +413,7 @@ impl<'a> RequestPlanner<'a> {
 fn validate_streaming_shape(
     method: &Method,
     binding: &HttpBinding,
-    path_fields: &[ShapeField],
+    path_fields: &[PathField],
     query_shape: &Option<RequestPartShape>,
     body_shape: &Option<RequestPartShape>,
 ) -> CodegenResult<()> {
@@ -470,7 +509,7 @@ impl RequestWork {
 fn reconstruction_for(
     request_message: &Message,
     binding: &HttpBinding,
-    path_fields: &[ShapeField],
+    path_fields: &[PathField],
     body_shape: &Option<RequestPartShape>,
     query_shape: &Option<RequestPartShape>,
 ) -> RequestReconstruction {
@@ -478,7 +517,7 @@ fn reconstruction_for(
         return RequestReconstruction::Empty;
     }
 
-    if path_fields.is_empty() {
+    if path_fields.iter().all(PathField::is_nested) {
         if matches!(body_shape, Some(RequestPartShape::VerbatimRequest { .. })) {
             return RequestReconstruction::VerbatimBody;
         }
@@ -493,6 +532,8 @@ fn reconstruction_for(
         .map(|field| FieldAssignment {
             field: field.name.clone(),
             source: field_source(field, binding),
+            singular_message: field.label != Some(FieldLabel::Repeated)
+                && matches!(field.kind, FieldKind::Message(_) | FieldKind::Group(_)),
         })
         .collect();
 
@@ -578,7 +619,7 @@ mod tests {
             shape
                 .path_fields
                 .iter()
-                .map(|field| field.field.name.as_ref())
+                .map(|field| field.field.field.name.as_ref())
                 .collect::<Vec<_>>(),
             vec!["data", "test_type"]
         );
@@ -595,6 +636,50 @@ mod tests {
                 if fields.iter().map(|field| field.source).collect::<Vec<_>>()
                     == vec![FieldSource::Path, FieldSource::Path, FieldSource::Body]
         ));
+    }
+
+    #[test]
+    fn nested_path_fields_leave_the_parent_message_to_the_body() {
+        let ir = build_ir(&request(vec![test_file(vec![method(
+            "PatchNested",
+            ".test.v1.TestRequest",
+            http_rule(6, "/test/{tester.data}", Some("*")),
+        )])]))
+        .unwrap();
+
+        let shapes = plan_file_shapes(&ir, &ir.files[0], &CodegenOptions::default()).unwrap();
+        let shape = &shapes.request_shapes[0];
+
+        assert_eq!(
+            shape.path_fields[0]
+                .segments
+                .iter()
+                .map(|segment| segment.as_ref())
+                .collect::<Vec<_>>(),
+            vec!["tester", "data"]
+        );
+        assert_eq!(
+            shape.path_fields[0].field.rust_type.as_str(),
+            "::std::string::String"
+        );
+        assert!(matches!(
+            &shape.body_shape,
+            Some(RequestPartShape::VerbatimRequest { .. })
+        ));
+        assert_eq!(shape.reconstruction, RequestReconstruction::VerbatimBody);
+    }
+
+    #[test]
+    fn nested_path_fields_must_resolve_through_singular_messages() {
+        for path in ["/test/{tester.missing}", "/test/{data.length}"] {
+            let result = build_ir(&request(vec![test_file(vec![method(
+                "GetNested",
+                ".test.v1.TestRequest",
+                http_rule(2, path, None),
+            )])]));
+
+            assert!(result.is_err(), "{path}");
+        }
     }
 
     #[test]
