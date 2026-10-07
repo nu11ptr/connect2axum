@@ -1,6 +1,7 @@
 //! Query string extraction with protobuf field paths.
 
-use std::collections::BTreeMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
 
 use axum::body::Body;
 use axum::extract::FromRequestParts;
@@ -14,7 +15,8 @@ use crate::error_response;
 /// Query extractor that accepts dotted protobuf field paths such as
 /// `?datasource.symbol.ticker=AAPL`, deserializing them into nested messages.
 ///
-/// Values stay strings, matching axum's `Query` for non-nested fields.
+/// Values are passed as strings, except `true`/`false` for fields that reject
+/// a string (protobuf `bool` fields).
 #[derive(Clone, Debug, Default)]
 pub struct ProtoQuery<T>(pub T);
 
@@ -38,25 +40,46 @@ where
 
 /// Deserializes a URL query string whose keys may be dotted field paths.
 pub fn from_query_str<T: DeserializeOwned>(query: &str) -> Result<T, Error> {
-    let mut root = BTreeMap::new();
-    for (key, value) in form_urlencoded::parse(query.as_bytes()) {
-        insert(&mut root, &key, value.into_owned())?;
+    let pairs: Vec<(String, String)> = form_urlencoded::parse(query.as_bytes())
+        .into_owned()
+        .collect();
+    // Query values carry no type, and ProtoJSON bool fields reject strings.
+    // A `true`/`false` value rejected as a string is retried as a bool.
+    let bool_keys = RefCell::new(BTreeSet::new());
+    loop {
+        let mut root = BTreeMap::new();
+        for (key, value) in &pairs {
+            let leaf = Node::Leaf {
+                key: key.clone(),
+                value: value.clone(),
+                bool_keys: &bool_keys,
+            };
+            insert(&mut root, key, leaf)?;
+        }
+        let known_bools = bool_keys.borrow().len();
+        match T::deserialize(Node::Branch(root)) {
+            Err(_) if bool_keys.borrow().len() > known_bools => continue,
+            result => return result,
+        }
     }
-    T::deserialize(Node::Branch(root))
 }
 
-fn insert(map: &mut BTreeMap<String, Node>, key: &str, value: String) -> Result<(), Error> {
-    let (head, rest) = match key.split_once('.') {
+fn insert<'a>(
+    map: &mut BTreeMap<String, Node<'a>>,
+    path: &str,
+    leaf: Node<'a>,
+) -> Result<(), Error> {
+    let (head, rest) = match path.split_once('.') {
         Some((head, rest)) => (head, Some(rest)),
-        None => (key, None),
+        None => (path, None),
     };
     if head.is_empty() {
         return Err(serde::de::Error::custom(format!(
-            "invalid field path {key:?}"
+            "invalid field path {path:?}"
         )));
     }
     match rest {
-        None => match map.insert(head.to_owned(), Node::Leaf(value)) {
+        None => match map.insert(head.to_owned(), leaf) {
             None => Ok(()),
             Some(_) => Err(serde::de::Error::custom(format!(
                 "duplicate field {head:?}"
@@ -66,25 +89,43 @@ fn insert(map: &mut BTreeMap<String, Node>, key: &str, value: String) -> Result<
             .entry(head.to_owned())
             .or_insert_with(|| Node::Branch(BTreeMap::new()))
         {
-            Node::Branch(child) => insert(child, rest, value),
-            Node::Leaf(_) => Err(serde::de::Error::custom(format!(
+            Node::Branch(child) => insert(child, rest, leaf),
+            Node::Leaf { .. } => Err(serde::de::Error::custom(format!(
                 "field {head:?} is both a value and a message"
             ))),
         },
     }
 }
 
-enum Node {
-    Leaf(String),
-    Branch(BTreeMap<String, Node>),
+enum Node<'a> {
+    Leaf {
+        key: String,
+        value: String,
+        bool_keys: &'a RefCell<BTreeSet<String>>,
+    },
+    Branch(BTreeMap<String, Node<'a>>),
 }
 
-impl<'de> Deserializer<'de> for Node {
+impl<'de> Deserializer<'de> for Node<'_> {
     type Error = Error;
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         match self {
-            Node::Leaf(value) => visitor.visit_string(value),
+            Node::Leaf {
+                key,
+                value,
+                bool_keys,
+            } => {
+                if bool_keys.borrow().contains(&key) {
+                    return visitor.visit_bool(value == "true");
+                }
+                let is_bool = value == "true" || value == "false";
+                let result = visitor.visit_string(value);
+                if result.is_err() && is_bool {
+                    bool_keys.borrow_mut().insert(key);
+                }
+                result
+            }
             Node::Branch(map) => visitor.visit_map(MapDeserializer::new(map.into_iter())),
         }
     }
@@ -100,7 +141,7 @@ impl<'de> Deserializer<'de> for Node {
     }
 }
 
-impl<'de> IntoDeserializer<'de, Error> for Node {
+impl<'de, 'a> IntoDeserializer<'de, Error> for Node<'a> {
     type Deserializer = Self;
 
     fn into_deserializer(self) -> Self {
@@ -118,6 +159,7 @@ mod tests {
     #[serde(default)]
     struct Request {
         name: String,
+        enabled: bool,
         outer: Outer,
     }
 
@@ -125,6 +167,7 @@ mod tests {
     #[serde(default)]
     struct Outer {
         id: String,
+        active: bool,
         inner: Option<Inner>,
     }
 
@@ -141,14 +184,28 @@ mod tests {
             request,
             Request {
                 name: "a".into(),
+                enabled: false,
                 outer: Outer {
                     id: "b".into(),
+                    active: false,
                     inner: Some(Inner {
                         value: "c d".into()
                     }),
                 },
             }
         );
+    }
+
+    #[test]
+    fn true_and_false_bind_bools_without_affecting_strings() {
+        let request: Request =
+            from_query_str("name=true&enabled=true&outer.id=false&outer.active=true").unwrap();
+
+        assert_eq!(request.name, "true");
+        assert!(request.enabled);
+        assert_eq!(request.outer.id, "false");
+        assert!(request.outer.active);
+        assert!(from_query_str::<Request>("enabled=yes").is_err());
     }
 
     #[test]
