@@ -7,7 +7,7 @@ use axum::body::Body;
 use axum::extract::FromRequestParts;
 use connectrpc::ConnectError;
 use http::request::Parts;
-use serde::de::value::{Error, MapDeserializer};
+use serde::de::value::{Error, MapDeserializer, SeqDeserializer};
 use serde::de::{DeserializeOwned, Deserializer, IntoDeserializer, Visitor};
 
 use crate::error_response;
@@ -16,7 +16,8 @@ use crate::error_response;
 /// `?datasource.symbol.ticker=AAPL`, deserializing them into nested messages.
 ///
 /// Values are passed as strings, except `true`/`false` for fields that reject
-/// a string (protobuf `bool` fields).
+/// a string (protobuf `bool` fields). Repeated keys, or a single value for a
+/// field that rejects a scalar, bind repeated fields.
 #[derive(Clone, Debug, Default)]
 pub struct ProtoQuery<T>(pub T);
 
@@ -43,22 +44,28 @@ pub fn from_query_str<T: DeserializeOwned>(query: &str) -> Result<T, Error> {
     let pairs: Vec<(String, String)> = form_urlencoded::parse(query.as_bytes())
         .into_owned()
         .collect();
-    // Query values carry no type, and ProtoJSON bool fields reject strings.
-    // A `true`/`false` value rejected as a string is retried as a bool.
-    let bool_keys = RefCell::new(BTreeSet::new());
+    // Query values carry no type, and ProtoJSON bool and repeated fields
+    // reject strings. A rejected value is retried as a bool (`true`/`false`)
+    // or as a one-element list. If retrying fails, the first error is kept.
+    let hints = Hints::default();
+    let mut first_err = None;
     loop {
         let mut root = BTreeMap::new();
         for (key, value) in &pairs {
             let leaf = Node::Leaf {
                 key: key.clone(),
-                value: value.clone(),
-                bool_keys: &bool_keys,
+                values: vec![value.clone()],
+                element: false,
+                hints: &hints,
             };
             insert(&mut root, key, leaf)?;
         }
-        let known_bools = bool_keys.borrow().len();
+        let known = hints.len();
         match T::deserialize(Node::Branch(root)) {
-            Err(_) if bool_keys.borrow().len() > known_bools => continue,
+            Err(err) if hints.len() > known => {
+                first_err.get_or_insert(err);
+            }
+            Err(err) => return Err(first_err.unwrap_or(err)),
             result => return result,
         }
     }
@@ -79,10 +86,17 @@ fn insert<'a>(
         )));
     }
     match rest {
-        None => match map.insert(head.to_owned(), leaf) {
-            None => Ok(()),
-            Some(_) => Err(serde::de::Error::custom(format!(
-                "duplicate field {head:?}"
+        None => match (map.get_mut(head), leaf) {
+            (None, leaf) => {
+                map.insert(head.to_owned(), leaf);
+                Ok(())
+            }
+            (Some(Node::Leaf { values, .. }), Node::Leaf { values: more, .. }) => {
+                values.extend(more);
+                Ok(())
+            }
+            _ => Err(serde::de::Error::custom(format!(
+                "field {head:?} is both a value and a message"
             ))),
         },
         Some(rest) => match map
@@ -97,11 +111,25 @@ fn insert<'a>(
     }
 }
 
+#[derive(Default)]
+struct Hints {
+    bools: RefCell<BTreeSet<String>>,
+    lists: RefCell<BTreeSet<String>>,
+}
+
+impl Hints {
+    fn len(&self) -> usize {
+        self.bools.borrow().len() + self.lists.borrow().len()
+    }
+}
+
 enum Node<'a> {
     Leaf {
         key: String,
-        value: String,
-        bool_keys: &'a RefCell<BTreeSet<String>>,
+        values: Vec<String>,
+        // List elements are never wrapped in another list.
+        element: bool,
+        hints: &'a Hints,
     },
     Branch(BTreeMap<String, Node<'a>>),
 }
@@ -113,16 +141,31 @@ impl<'de> Deserializer<'de> for Node<'_> {
         match self {
             Node::Leaf {
                 key,
-                value,
-                bool_keys,
+                values,
+                element,
+                hints,
             } => {
-                if bool_keys.borrow().contains(&key) {
-                    return visitor.visit_bool(value == "true");
+                if !element && (values.len() > 1 || hints.lists.borrow().contains(&key)) {
+                    let items = values.into_iter().map(|value| Node::Leaf {
+                        key: key.clone(),
+                        values: vec![value],
+                        element: true,
+                        hints,
+                    });
+                    return visitor.visit_seq(SeqDeserializer::new(items));
                 }
+                let value = values.concat();
                 let is_bool = value == "true" || value == "false";
-                let result = visitor.visit_string(value);
-                if result.is_err() && is_bool {
-                    bool_keys.borrow_mut().insert(key);
+                let result = if hints.bools.borrow().contains(&key) {
+                    visitor.visit_bool(value == "true")
+                } else {
+                    visitor.visit_string(value)
+                };
+                if result.is_err() {
+                    let retry_as_bool = is_bool && hints.bools.borrow_mut().insert(key.clone());
+                    if !retry_as_bool && !element {
+                        hints.lists.borrow_mut().insert(key);
+                    }
                 }
                 result
             }
@@ -160,6 +203,7 @@ mod tests {
     struct Request {
         name: String,
         enabled: bool,
+        ids: Vec<String>,
         outer: Outer,
     }
 
@@ -185,6 +229,7 @@ mod tests {
             Request {
                 name: "a".into(),
                 enabled: false,
+                ids: Vec::new(),
                 outer: Outer {
                     id: "b".into(),
                     active: false,
@@ -206,6 +251,15 @@ mod tests {
         assert_eq!(request.outer.id, "false");
         assert!(request.outer.active);
         assert!(from_query_str::<Request>("enabled=yes").is_err());
+    }
+
+    #[test]
+    fn repeated_keys_and_single_values_bind_lists() {
+        let request: Request = from_query_str("ids=a&ids=b").unwrap();
+        assert_eq!(request.ids, ["a", "b"]);
+
+        let request: Request = from_query_str("ids=a").unwrap();
+        assert_eq!(request.ids, ["a"]);
     }
 
     #[test]
