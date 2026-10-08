@@ -1,6 +1,6 @@
 [package]
 name = "connect2axum"
-version = "0.4.1"
+version = "0.4.2"
 description = "Runtime helpers for generated REST and WebSocket wrappers over ConnectRPC services"
 readme = "../../README.md"
 authors.workspace = true
