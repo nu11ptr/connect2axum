@@ -234,7 +234,7 @@ dependencies = [
 
 [[package]]
 name = "connect2axum-codegen"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "buffa",
  "buffa-codegen",
