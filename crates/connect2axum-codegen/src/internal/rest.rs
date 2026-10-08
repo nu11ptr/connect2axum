@@ -9,6 +9,7 @@ use uni_error::UniError;
 
 use crate::error::{CodegenErrKind, CodegenResult};
 use crate::internal::guardrails::{ensure_unique_generated_identifiers, ensure_unique_routes};
+use crate::internal::http::axum_route_path;
 use crate::internal::ir::{
     CommentSet, DescriptorIr, Field, FieldKind, FieldLabel, HttpVerb, Method, ProtoFile, Service,
 };
@@ -314,7 +315,8 @@ impl<'a> RustGenerator<'a> {
                 format!("method {} has no HTTP binding", method.full_name.as_ref()),
             )
         })?;
-        let path = binding.path.as_ref();
+        let path = axum_route_path(binding.path.as_ref());
+        let path = path.as_ref();
         let method_ident = parse_ident(
             self.resolver.method_fn_name(method.name.as_ref()).as_ref(),
             "route handler",
@@ -424,7 +426,12 @@ fn rest_route_key(method: &Method) -> CodegenResult<SharedStr> {
             format!("method {} has no HTTP binding", method.full_name.as_ref()),
         )
     })?;
-    Ok(format!("{} {}", binding.verb.as_str(), binding.path.as_ref()).into_opt())
+    Ok(format!(
+        "{} {}",
+        binding.verb.as_str(),
+        axum_route_path(binding.path.as_ref()).as_ref()
+    )
+    .into_opt())
 }
 
 fn dto_tokens(dto: &GeneratedDto) -> CodegenResult<TokenStream> {
@@ -976,8 +983,8 @@ pub mod test_service_rest {
         S: crate::connect::test::v1::TestService + Send + Sync + 'static,
     {
         axum::Router::new()
-            .route("/test/{data}", axum::routing::get(get_one::<S>))
-            .route("/test/{data}/testing/{test_type}", axum::routing::post(do_test::<S>))
+            .route("/test/{p0}", axum::routing::get(get_one::<S>))
+            .route("/test/{p0}/testing/{p1}", axum::routing::post(do_test::<S>))
             .route("/test", axum::routing::patch(patch_all::<S>))
             .route("/ping", axum::routing::get(ping::<S>))
             .with_state(service)
@@ -1002,7 +1009,51 @@ pub mod test_service_rest {
             "letrequest__=query__;letmutrequest__=request__;\
              request__.tester.get_or_insert_default().data=tester_data__;"
         ));
-        assert!(content.contains(".route(\"/test/{tester.data}\""));
+        assert!(content.contains(".route(\"/test/{p0}\""));
+    }
+
+    #[test]
+    fn equivalent_templates_with_different_fields_share_route_parameters() {
+        let mut file = test_file();
+        file.service[0].method.push(method(
+            "DeleteNested",
+            ".test.v1.TestRequest",
+            http_rule(5, "/test/{tester.data}", None),
+        ));
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test/v1/test.proto".into()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let response = try_generate_rest(&request).unwrap();
+        let content = response.file[0].content.as_deref().unwrap();
+        let compact = content.split_whitespace().collect::<String>();
+
+        assert!(compact.contains(".route(\"/test/{p0}\",axum::routing::get(get_one::<S>))"));
+        assert!(
+            compact.contains(".route(\"/test/{p0}\",axum::routing::delete(delete_nested::<S>))")
+        );
+    }
+
+    #[test]
+    fn rejects_same_verb_on_equivalent_route_templates() {
+        let mut file = test_file();
+        file.service[0].method.push(method(
+            "GetNested",
+            ".test.v1.TestRequest",
+            http_rule(2, "/test/{tester.data}", None),
+        ));
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test/v1/test.proto".into()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let err = try_generate_rest(&request).unwrap_err();
+
+        assert!(err.to_string().contains("duplicate route"));
+        assert!(err.to_string().contains("GET /test/{p0}"));
     }
 
     #[test]

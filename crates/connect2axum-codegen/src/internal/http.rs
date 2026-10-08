@@ -109,6 +109,25 @@ fn parse_body(value: &str) -> CodegenResult<HttpBody> {
     }
 }
 
+/// Names path parameters by position (`{p0}`, `{p1}`, ...). Handlers extract them
+/// by position, and axum rejects one path shape registered with different names.
+pub fn axum_route_path(path: &str) -> flexstr::SharedStr {
+    let mut index = 0;
+    let segments = path.split('/').map(|segment| {
+        if segment.starts_with('{') {
+            index += 1;
+            format!("{{p{}}}", index - 1)
+        } else {
+            segment.to_owned()
+        }
+    });
+    segments
+        .collect::<Vec<_>>()
+        .join("/")
+        .as_str()
+        .to_owned_opt()
+}
+
 fn parse_path_variables(path: &str) -> CodegenResult<Vec<flexstr::SharedStr>> {
     if !path.starts_with('/') {
         return Err(UniError::from_kind_context(
