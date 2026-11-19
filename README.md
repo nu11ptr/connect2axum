@@ -1,8 +1,8 @@
 # connect2axum [![Crate](https://img.shields.io/crates/v/connect2axum)](https://crates.io/crates/connect2axum) [![Docs](https://docs.rs/connect2axum/badge.svg)](https://docs.rs/connect2axum) [![Build](https://github.com/nu11ptr/connect2axum/workflows/CI/badge.svg)](https://github.com/nu11ptr/connect2axum/actions) [![License](https://img.shields.io/crates/l/connect2axum)](https://github.com/nu11ptr/connect2axum/blob/main/LICENSE)
 
-Generate REST and/or WebSocket endpoint wrappers over ConnectRPC services.
-Additionally, generate OpenAPI docs for REST endpoints and AsyncAPI docs for
-WebSocket endpoints.
+Generate REST, WebSocket and/or MCP (Model Context Protocol) wrappers over
+ConnectRPC services. Additionally, generate OpenAPI docs for REST endpoints and
+AsyncAPI docs for WebSocket endpoints.
 
 ## Install
 
@@ -14,6 +14,7 @@ This installs:
 
 - `protoc-gen-connect2rest`
 - `protoc-gen-connect2ws`
+- `protoc-gen-connect2mcp`
 - `protoc-gen-connect2openapi`
 - `protoc-gen-connect2asyncapi`
 
@@ -101,6 +102,13 @@ plugins:
     opt:
       - buffa_module=crate::proto
       - connect_module=crate::connect
+  - local: protoc-gen-connect2mcp
+    out: src/generated/connect2axum
+    strategy: all
+    opt:
+      - buffa_module=crate::proto
+      - connect_module=crate::connect
+      - config=connect2mcp.yaml
   - local: protoc-gen-connect2openapi
     out: src/generated/openapi
     strategy: all
@@ -117,15 +125,30 @@ plugins:
 
 | Option | Default | Used By | Purpose |
 | --- | --- | --- | --- |
-| `buffa_module` | `crate::proto` | REST, WS | Rust module root where Buffa generated messages are available. |
-| `connect_module` | `crate::connect` | REST, WS | Rust module root where Connect Rust generated service traits are available. |
-| `runtime_module` | `::connect2axum` | REST, WS | Rust path to the runtime helper crate/module. |
+| `buffa_module` | `crate::proto` | REST, WS, MCP | Rust module root where Buffa generated messages are available. |
+| `connect_module` | `crate::connect` | REST, WS, MCP | Rust module root where Connect Rust generated service traits are available. |
+| `runtime_module` | `::connect2axum` | REST, WS, MCP | Rust path to the runtime helper crate/module. |
+| `mcp_module` | `::connect2axum_mcp` | MCP | Rust path to the MCP runtime crate. |
+| `config` | none | MCP, OpenAPI, AsyncAPI | YAML config file for the generator. |
 | `streaming_content_type` | `application/x-ndjson` | REST | REST streaming response content type. |
 | `suppress_pkg_prefix` | `true` | OpenAPI, AsyncAPI | Omit protobuf package prefixes from document component names and references. |
-| `value_suffix` | `__` | REST, WS | Suffix for generated local bindings to avoid collisions with request fields. |
+| `value_suffix` | `__` | REST, WS, MCP | Suffix for generated local bindings to avoid collisions with request fields. |
 | `type_suffix` | `__` | REST | Suffix for generated DTO type names. |
 | `body_message_suffix` | `Body` | REST | Suffix for generated body DTOs. |
 | `query_message_suffix` | `Query` | REST | Suffix for generated query DTOs. |
+
+### MCP Generator
+
+`protoc-gen-connect2mcp` exposes every unary RPC as an MCP tool, whether or not
+it has a `google.api.http` binding, with input schemas built from the request
+messages. A `connect2mcp.yaml` config can exclude RPCs, switch to an allowlist,
+or rename tools. The `connect2axum-mcp` crate serves the generated tools as an
+`axum::Router` over MCP's Streamable HTTP transport, and can publish OAuth
+discovery metadata for clients that log in.
+
+See [docs/mcp-generator.md](docs/mcp-generator.md) for options, schema
+mapping, error handling and authentication, and the
+[MCP example](examples/mcp) for a complete application.
 
 ### OpenAPI Generator
 
