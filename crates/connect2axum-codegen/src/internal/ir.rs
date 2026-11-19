@@ -38,8 +38,6 @@ impl DescriptorIr {
             .flat_map(|file| file.messages.iter())
             .find_map(|message| find_message(message, full_name))
     }
-
-    #[allow(dead_code, reason = "used by the shared schema builder")]
     pub fn enum_type(&self, full_name: &str) -> Option<&EnumType> {
         self.files.iter().find_map(|file| {
             file.enums
@@ -113,7 +111,6 @@ pub struct Message {
 
 impl Message {
     /// Returns the key and value fields of a map entry message.
-    #[allow(dead_code, reason = "used by the shared schema builder")]
     pub fn map_key_value(&self) -> Option<(&Field, &Field)> {
         if !self.map_entry {
             return None;
@@ -656,7 +653,6 @@ fn index_messages(messages: &[Message], message_index: &mut HashMap<SharedStr, M
     }
 }
 
-#[allow(dead_code, reason = "used by the shared schema builder")]
 fn find_nested_enum<'a>(message: &'a Message, full_name: &str) -> Option<&'a EnumType> {
     message
         .enums

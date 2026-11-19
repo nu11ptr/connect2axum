@@ -1,6 +1,7 @@
 use serde_json::{Map, Value, json};
 
-use crate::internal::ir::{FieldKind, FieldLabel};
+use crate::internal::ir::FieldLabel;
+use crate::internal::schema::scalar_schema;
 use crate::internal::shape::ShapeField;
 
 use super::comments::comment_description;
@@ -26,10 +27,10 @@ pub fn field_schema(field: &ShapeField) -> Value {
     let mut schema = if field.field.label == Some(FieldLabel::Repeated) {
         json!({
             "type": "array",
-            "items": scalar_field_schema(&field.field.kind)
+            "items": scalar_schema(&field.field.kind)
         })
     } else {
-        scalar_field_schema(&field.field.kind)
+        scalar_schema(&field.field.kind)
     };
 
     if let Some(description) = comment_description(&field.field.comments)
@@ -39,26 +40,4 @@ pub fn field_schema(field: &ShapeField) -> Value {
     }
 
     schema
-}
-
-pub fn scalar_field_schema(kind: &FieldKind) -> Value {
-    match kind {
-        FieldKind::Double => json!({ "type": "number", "format": "double" }),
-        FieldKind::Float => json!({ "type": "number", "format": "float" }),
-        FieldKind::Int64 | FieldKind::Sint64 | FieldKind::Sfixed64 => {
-            json!({ "type": "string", "format": "int64" })
-        }
-        FieldKind::Uint64 | FieldKind::Fixed64 => json!({ "type": "string", "format": "uint64" }),
-        FieldKind::Int32 | FieldKind::Sint32 | FieldKind::Sfixed32 => {
-            json!({ "type": "integer", "format": "int32" })
-        }
-        FieldKind::Uint32 | FieldKind::Fixed32 => json!({ "type": "integer", "format": "uint32" }),
-        FieldKind::Bool => json!({ "type": "boolean" }),
-        FieldKind::String => json!({ "type": "string" }),
-        FieldKind::Bytes => json!({ "type": "string", "format": "byte" }),
-        FieldKind::Enum(_) => json!({ "type": "string" }),
-        FieldKind::Group(_) | FieldKind::Message(_) | FieldKind::Unknown => {
-            json!({ "type": "object", "additionalProperties": true })
-        }
-    }
 }

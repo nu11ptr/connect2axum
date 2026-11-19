@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use connectrpc_codegen::plugin::{CodeGeneratorResponse, CodeGeneratorResponseFile};
@@ -10,11 +10,11 @@ use crate::CodeGeneratorRequest;
 use crate::error::{CodegenErrKind, CodegenResult};
 use crate::internal::api_names::{ComponentNameTracker, PackagePrefixNamer};
 use crate::internal::guardrails::ensure_unique_routes;
-use crate::internal::ir::{DescriptorIr, Field, FieldKind, FieldLabel, Method, Service, build_ir};
+use crate::internal::ir::{DescriptorIr, Method, Service, build_ir};
 use crate::internal::openapi::comments::comment_description;
 use crate::internal::openapi::config::{DocConfig, InfoConfig};
-use crate::internal::openapi::schema::scalar_field_schema;
 use crate::internal::options::CodegenOptions;
+use crate::internal::schema::{SchemaBuilder, json_pointer_escape};
 use crate::internal::shape::{FileShapes, RequestShape, plan_file_shapes};
 use crate::internal::ws::ws_route_path;
 
@@ -144,8 +144,12 @@ fn build_document(
     }
 
     let method_namer = PackagePrefixNamer::new(ir, options.suppress_pkg_prefix);
-    let mut schema_registry =
-        SchemaRegistry::new(PackagePrefixNamer::new(ir, options.suppress_pkg_prefix));
+    let mut schemas = SchemaBuilder::components(
+        ir,
+        PackagePrefixNamer::new(ir, options.suppress_pkg_prefix),
+        "AsyncAPI schema component",
+        "#/components/schemas/",
+    );
     let mut message_names = ComponentNameTracker::new("AsyncAPI message component");
     let mut operation_names = ComponentNameTracker::new("AsyncAPI operation");
     let mut channels = Map::new();
@@ -154,10 +158,8 @@ fn build_document(
     let mut tags = BTreeMap::new();
 
     for ws_method in &ws_methods {
-        let input_schema_name =
-            schema_registry.ensure_schema(ir, ws_method.method.input_type.as_ref())?;
-        let output_schema_name =
-            schema_registry.ensure_schema(ir, ws_method.method.output_type.as_ref())?;
+        let input_schema_name = schemas.component(ws_method.method.input_type.as_ref())?;
+        let output_schema_name = schemas.component(ws_method.method.output_type.as_ref())?;
 
         let service_tag = service_tag(ws_method.service);
         tags.entry(ws_method.service.name.clone())
@@ -242,8 +244,9 @@ fn build_document(
     }
 
     let mut components = Map::new();
-    if !schema_registry.schemas.is_empty() {
-        components.insert("schemas".to_owned(), Value::Object(schema_registry.schemas));
+    let schemas = schemas.into_definitions();
+    if !schemas.is_empty() {
+        components.insert("schemas".to_owned(), Value::Object(schemas));
     }
     components.insert("messages".to_owned(), Value::Object(messages));
     if !config.security_schemes.is_empty() {
@@ -647,100 +650,6 @@ fn message_component(
     Value::Object(message)
 }
 
-struct SchemaRegistry<'a> {
-    schemas: Map<String, Value>,
-    seen: BTreeSet<SharedStr>,
-    namer: PackagePrefixNamer<'a>,
-    names: ComponentNameTracker,
-}
-
-impl<'a> SchemaRegistry<'a> {
-    fn new(namer: PackagePrefixNamer<'a>) -> Self {
-        Self {
-            schemas: Map::new(),
-            seen: BTreeSet::new(),
-            namer,
-            names: ComponentNameTracker::new("AsyncAPI schema component"),
-        }
-    }
-
-    fn ensure_schema(&mut self, ir: &DescriptorIr, full_name: &str) -> CodegenResult<SharedStr> {
-        let schema_name = self.schema_name(full_name)?;
-        if !self.seen.insert(full_name.to_owned_opt()) {
-            return Ok(schema_name);
-        }
-
-        let schema = if full_name == "google.protobuf.Empty" {
-            json!({ "type": "object", "properties": {} })
-        } else if let Some(message) = ir.message(full_name) {
-            self.message_schema(ir, message)?
-        } else {
-            json!({ "type": "object", "additionalProperties": true })
-        };
-        self.schemas.insert(schema_name.as_ref().to_owned(), schema);
-        Ok(schema_name)
-    }
-
-    fn schema_name(&mut self, full_name: &str) -> CodegenResult<SharedStr> {
-        self.names.record(
-            full_name,
-            self.namer.component_name(full_name).into_owned().into_opt(),
-        )
-    }
-
-    fn message_schema(
-        &mut self,
-        ir: &DescriptorIr,
-        message: &crate::internal::ir::Message,
-    ) -> CodegenResult<Value> {
-        let mut schema = Map::new();
-        schema.insert("type".to_owned(), Value::String("object".to_owned()));
-        if let Some(description) = comment_description(&message.comments) {
-            schema.insert("description".to_owned(), Value::String(description));
-        }
-
-        let properties = message
-            .fields
-            .iter()
-            .map(|field| {
-                let schema = self.field_schema(ir, field)?;
-                Ok((field.json_name.as_ref().to_owned(), schema))
-            })
-            .collect::<CodegenResult<Map<_, _>>>()?;
-        schema.insert("properties".to_owned(), Value::Object(properties));
-        Ok(Value::Object(schema))
-    }
-
-    fn field_schema(&mut self, ir: &DescriptorIr, field: &Field) -> CodegenResult<Value> {
-        let mut schema = if field.label == Some(FieldLabel::Repeated) {
-            json!({
-                "type": "array",
-                "items": self.single_field_schema(ir, &field.kind)?
-            })
-        } else {
-            self.single_field_schema(ir, &field.kind)?
-        };
-
-        if let Some(description) = comment_description(&field.comments)
-            && let Some(schema) = schema.as_object_mut()
-        {
-            schema.insert("description".to_owned(), Value::String(description));
-        }
-
-        Ok(schema)
-    }
-
-    fn single_field_schema(&mut self, ir: &DescriptorIr, kind: &FieldKind) -> CodegenResult<Value> {
-        match kind {
-            FieldKind::Message(full_name) | FieldKind::Group(full_name) => {
-                let schema_name = self.ensure_schema(ir, full_name.as_ref())?;
-                Ok(schema_ref(schema_name.as_ref()))
-            }
-            _ => Ok(scalar_field_schema(kind)),
-        }
-    }
-}
-
 fn asyncapi_security(config: &DocConfig) -> Option<Value> {
     let security = config.security.as_ref()?;
     let Some(requirements) = security.as_array() else {
@@ -827,10 +736,6 @@ fn channel_ref(route_path: &str) -> Value {
 
 fn channel_message_ref(route_path: &str, message: &str) -> Value {
     json!({ "$ref": format!("#/channels/{}/messages/{message}", json_pointer_escape(route_path)) })
-}
-
-fn json_pointer_escape(value: &str) -> String {
-    value.replace('~', "~0").replace('/', "~1")
 }
 
 fn validate_document(document: &Value) -> CodegenResult<()> {

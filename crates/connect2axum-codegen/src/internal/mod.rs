@@ -8,5 +8,6 @@ pub mod openapi;
 pub mod options;
 pub mod resolver;
 pub mod rest;
+pub mod schema;
 pub mod shape;
 pub mod ws;
