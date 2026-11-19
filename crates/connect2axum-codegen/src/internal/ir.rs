@@ -1,20 +1,23 @@
 use std::collections::HashMap;
 
 use connectrpc_codegen::codegen::descriptor::{
-    self, DescriptorProto, FieldDescriptorProto, FileDescriptorProto, MethodDescriptorProto,
-    ServiceDescriptorProto,
+    self, DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorProto,
+    MethodDescriptorProto, ServiceDescriptorProto,
 };
 use flexstr::{SharedStr, ToOwnedFlexStr as _};
 use uni_error::{ResultContext as _, UniError};
 
 use crate::CodeGeneratorRequest;
 use crate::error::{CodegenErrKind, CodegenResult};
-use crate::internal::http;
+use crate::internal::{field_options, http};
 
 const FILE_MESSAGE_TYPE_PATH: i32 = 4;
+const FILE_ENUM_TYPE_PATH: i32 = 5;
 const FILE_SERVICE_PATH: i32 = 6;
 const MESSAGE_FIELD_PATH: i32 = 2;
 const MESSAGE_NESTED_TYPE_PATH: i32 = 3;
+const MESSAGE_ENUM_TYPE_PATH: i32 = 4;
+const ENUM_VALUE_PATH: i32 = 2;
 const SERVICE_METHOD_PATH: i32 = 2;
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -35,13 +38,28 @@ impl DescriptorIr {
             .flat_map(|file| file.messages.iter())
             .find_map(|message| find_message(message, full_name))
     }
+
+    #[allow(dead_code, reason = "used by the shared schema builder")]
+    pub fn enum_type(&self, full_name: &str) -> Option<&EnumType> {
+        self.files.iter().find_map(|file| {
+            file.enums
+                .iter()
+                .find(|enum_type| enum_type.full_name.as_ref() == full_name)
+                .or_else(|| {
+                    file.messages
+                        .iter()
+                        .find_map(|message| find_nested_enum(message, full_name))
+                })
+        })
+    }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ProtoFile {
     pub name: SharedStr,
     pub package: SharedStr,
     pub messages: Vec<Message>,
+    pub enums: Vec<EnumType>,
     pub services: Vec<Service>,
 }
 
@@ -77,22 +95,72 @@ pub struct Method {
     pub http: Option<HttpBinding>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Message {
     pub name: SharedStr,
     pub full_name: SharedStr,
     pub comments: CommentSet,
     pub fields: Vec<Field>,
     pub messages: Vec<Message>,
+    pub enums: Vec<EnumType>,
+    /// Declared oneofs, indexed by [`Field::oneof`]. Includes the synthetic
+    /// oneofs protoc creates for proto3 `optional` fields.
+    pub oneofs: Vec<Oneof>,
+    /// True for the synthetic `...Entry` message protoc creates for a `map`
+    /// field.
+    pub map_entry: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+impl Message {
+    /// Returns the key and value fields of a map entry message.
+    #[allow(dead_code, reason = "used by the shared schema builder")]
+    pub fn map_key_value(&self) -> Option<(&Field, &Field)> {
+        if !self.map_entry {
+            return None;
+        }
+        let key = self.fields.iter().find(|field| field.number == Some(1))?;
+        let value = self.fields.iter().find(|field| field.number == Some(2))?;
+        Some((key, value))
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Field {
     pub name: SharedStr,
     pub json_name: SharedStr,
     pub number: Option<i32>,
     pub label: Option<FieldLabel>,
     pub kind: FieldKind,
+    pub comments: CommentSet,
+    /// Index into [`Message::oneofs`] for members of a real oneof. `None` for
+    /// proto3 `optional` fields, whose synthetic oneof is not a real choice.
+    pub oneof: Option<usize>,
+    pub proto3_optional: bool,
+    /// Annotated required by `google.api.field_behavior` or Protovalidate.
+    pub required: bool,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Oneof {
+    pub name: SharedStr,
+    /// Annotated `(buf.validate.oneof).required = true`.
+    pub required: bool,
+    /// True when protoc created this oneof for a proto3 `optional` field.
+    pub synthetic: bool,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct EnumType {
+    pub name: SharedStr,
+    pub full_name: SharedStr,
+    pub comments: CommentSet,
+    pub values: Vec<EnumValue>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct EnumValue {
+    pub name: SharedStr,
+    pub number: i32,
     pub comments: CommentSet,
 }
 
@@ -103,7 +171,7 @@ pub enum FieldLabel {
     Repeated,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum FieldKind {
     Double,
     Float,
@@ -123,6 +191,7 @@ pub enum FieldKind {
     Sfixed64,
     Sint32,
     Sint64,
+    #[default]
     Unknown,
 }
 
@@ -201,12 +270,20 @@ pub fn build_ir(request: &CodeGeneratorRequest) -> CodegenResult<DescriptorIr> {
             let comments = SourceComments::new(file);
             let package = file.package.as_deref().unwrap_or_default();
             let messages = messages_by_file.remove(name).unwrap_or_default();
+            let enums = build_enums(
+                package,
+                &[],
+                &file.enum_type,
+                &comments,
+                &[FILE_ENUM_TYPE_PATH],
+            )?;
             let services = build_services(file, &comments, &message_index)?;
 
             Ok(ProtoFile {
                 name: name.to_owned_opt(),
                 package: package.to_owned_opt(),
                 messages,
+                enums,
                 services,
             })
         })
@@ -253,6 +330,32 @@ fn build_messages(
                     build_field(field, comments.get(&field_path))
                 })
                 .collect::<CodegenResult<Vec<_>>>()?;
+            let oneofs = descriptor
+                .oneof_decl
+                .iter()
+                .enumerate()
+                .map(|(oneof_index, oneof)| {
+                    let synthetic = descriptor.field.iter().any(|field| {
+                        field.proto3_optional == Some(true)
+                            && field
+                                .oneof_index
+                                .and_then(|index| usize::try_from(index).ok())
+                                == Some(oneof_index)
+                    });
+                    Ok(Oneof {
+                        name: oneof.name.as_deref().unwrap_or_default().to_owned_opt(),
+                        required: field_options::oneof_is_required(oneof.options.as_option())?,
+                        synthetic,
+                    })
+                })
+                .collect::<CodegenResult<Vec<_>>>()?;
+            let enums = build_enums(
+                package,
+                &nested_parents,
+                &descriptor.enum_type,
+                comments,
+                &[path.as_slice(), &[MESSAGE_ENUM_TYPE_PATH]].concat(),
+            )?;
 
             let nested_path_prefix = [path.as_slice(), &[MESSAGE_NESTED_TYPE_PATH]].concat();
             let messages = build_messages(
@@ -269,6 +372,13 @@ fn build_messages(
                 comments: comments.get(&path),
                 fields,
                 messages,
+                enums,
+                oneofs,
+                map_entry: descriptor
+                    .options
+                    .as_option()
+                    .and_then(|options| options.map_entry)
+                    .unwrap_or(false),
             })
         })
         .collect()
@@ -281,6 +391,20 @@ fn build_field(field: &FieldDescriptorProto, comments: CommentSet) -> CodegenRes
         "field descriptor".to_owned(),
     )?;
     let json_name = field.json_name.as_deref().unwrap_or(name);
+    let proto3_optional = field.proto3_optional.unwrap_or(false);
+    let oneof = if proto3_optional {
+        None
+    } else {
+        field
+            .oneof_index
+            .map(|index| {
+                usize::try_from(index).kind_context(
+                    CodegenErrKind::InvalidDescriptor,
+                    format!("field {name} has a negative oneof_index"),
+                )
+            })
+            .transpose()?
+    };
 
     Ok(Field {
         name: name.to_owned_opt(),
@@ -289,7 +413,56 @@ fn build_field(field: &FieldDescriptorProto, comments: CommentSet) -> CodegenRes
         label: field.label.map(FieldLabel::from),
         kind: field_kind(field),
         comments,
+        oneof,
+        proto3_optional,
+        required: field_options::field_is_required(field.options.as_option())?,
     })
+}
+
+fn build_enums(
+    package: &str,
+    parents: &[SharedStr],
+    descriptors: &[EnumDescriptorProto],
+    comments: &SourceComments,
+    path_prefix: &[i32],
+) -> CodegenResult<Vec<EnumType>> {
+    descriptors
+        .iter()
+        .enumerate()
+        .map(|(enum_index, descriptor)| {
+            let name = required_name(
+                descriptor.name.as_deref(),
+                "enum",
+                format!("enum at index {enum_index}"),
+            )?;
+            let path = child_path(path_prefix, enum_index)?;
+            let values = descriptor
+                .value
+                .iter()
+                .enumerate()
+                .map(|(value_index, value)| {
+                    let value_name = required_name(
+                        value.name.as_deref(),
+                        "enum value",
+                        format!("enum {name} value at index {value_index}"),
+                    )?;
+                    let value_path = child_path_with_field(&path, ENUM_VALUE_PATH, value_index)?;
+                    Ok(EnumValue {
+                        name: value_name.to_owned_opt(),
+                        number: value.number.unwrap_or_default(),
+                        comments: comments.get(&value_path),
+                    })
+                })
+                .collect::<CodegenResult<Vec<_>>>()?;
+
+            Ok(EnumType {
+                name: name.to_owned_opt(),
+                full_name: qualify_name(package, parents, name),
+                comments: comments.get(&path),
+                values,
+            })
+        })
+        .collect()
 }
 
 fn build_services(
@@ -483,6 +656,20 @@ fn index_messages(messages: &[Message], message_index: &mut HashMap<SharedStr, M
     }
 }
 
+#[allow(dead_code, reason = "used by the shared schema builder")]
+fn find_nested_enum<'a>(message: &'a Message, full_name: &str) -> Option<&'a EnumType> {
+    message
+        .enums
+        .iter()
+        .find(|enum_type| enum_type.full_name.as_ref() == full_name)
+        .or_else(|| {
+            message
+                .messages
+                .iter()
+                .find_map(|message| find_nested_enum(message, full_name))
+        })
+}
+
 fn find_message<'a>(message: &'a Message, full_name: &str) -> Option<&'a Message> {
     if message.full_name.as_ref() == full_name {
         return Some(message);
@@ -614,15 +801,192 @@ mod tests {
     use buffa::encoding::{Tag, WireType};
     use buffa::{MessageField, UnknownField, UnknownFieldData};
     use connectrpc_codegen::codegen::descriptor::{
-        DescriptorProto, FieldDescriptorProto, FileDescriptorProto, MethodDescriptorProto,
-        MethodOptions, ServiceDescriptorProto, SourceCodeInfo,
+        DescriptorProto, EnumDescriptorProto, EnumValueDescriptorProto, FieldDescriptorProto,
+        FileDescriptorProto, MessageOptions, MethodDescriptorProto, MethodOptions,
+        OneofDescriptorProto, ServiceDescriptorProto, SourceCodeInfo,
         field_descriptor_proto::{Label, Type},
         source_code_info::Location,
     };
 
-    use super::{HttpBody, HttpVerb, build_ir};
+    use super::{FieldKind, HttpBody, HttpVerb, build_ir};
     use crate::CodeGeneratorRequest;
+    use crate::internal::field_options::test_support::{
+        field_behavior_required, protovalidate_field_required, protovalidate_oneof_required,
+    };
     use crate::internal::http::HTTP_EXTENSION_NUMBER;
+
+    #[test]
+    fn extracts_top_level_and_nested_enums_with_comments() {
+        let mut message = request_message(vec![enum_field("kind", 1, ".test.v1.TestRequest.Kind")]);
+        message.enum_type = vec![enum_descriptor("Kind", &["KIND_UNSPECIFIED", "KIND_A"])];
+        let mut file = file_descriptor(
+            vec![message],
+            Vec::new(),
+            Some(SourceCodeInfo {
+                location: vec![
+                    location(vec![5, 0], "Color docs\n"),
+                    location(vec![5, 0, 2, 1], "Red docs\n"),
+                    location(vec![4, 0, 4, 0], "Kind docs\n"),
+                ],
+                ..Default::default()
+            }),
+        );
+        file.enum_type = vec![enum_descriptor("Color", &["COLOR_UNSPECIFIED", "RED"])];
+
+        let ir = build_ir(&CodeGeneratorRequest {
+            proto_file: vec![file],
+            ..Default::default()
+        })
+        .unwrap();
+
+        let color = ir.enum_type("test.v1.Color").expect("top-level enum");
+        assert_eq!(
+            color
+                .values
+                .iter()
+                .map(|value| value.name.as_ref())
+                .collect::<Vec<_>>(),
+            vec!["COLOR_UNSPECIFIED", "RED"]
+        );
+        assert_eq!(color.values[1].number, 1);
+        assert_eq!(leading(color), Some("Color docs\n"));
+        assert_eq!(
+            color.values[1].comments.leading.as_deref(),
+            Some("Red docs\n")
+        );
+
+        let kind = ir
+            .enum_type("test.v1.TestRequest.Kind")
+            .expect("nested enum");
+        assert_eq!(kind.values.len(), 2);
+        assert_eq!(leading(kind), Some("Kind docs\n"));
+        assert_eq!(
+            ir.files[0].messages[0].fields[0].kind,
+            FieldKind::Enum("test.v1.TestRequest.Kind".into())
+        );
+    }
+
+    #[test]
+    fn marks_map_entries_and_exposes_key_value() {
+        let mut entry = DescriptorProto {
+            name: Some("LabelsEntry".into()),
+            field: vec![string_field("key", 1), string_field("value", 2)],
+            ..Default::default()
+        };
+        entry.options = MessageField::some(MessageOptions {
+            map_entry: Some(true),
+            ..Default::default()
+        });
+        let mut labels = message_field("labels", 1, ".test.v1.TestRequest.LabelsEntry");
+        labels.label = Some(Label::LABEL_REPEATED);
+        let mut message = request_message(vec![labels]);
+        message.nested_type = vec![entry];
+
+        let ir = build_ir(&CodeGeneratorRequest {
+            proto_file: vec![file_descriptor(vec![message], Vec::new(), None)],
+            ..Default::default()
+        })
+        .unwrap();
+
+        let request = &ir.files[0].messages[0];
+        assert!(!request.map_entry);
+        let entry = ir.message("test.v1.TestRequest.LabelsEntry").unwrap();
+        assert!(entry.map_entry);
+        let (key, value) = entry.map_key_value().unwrap();
+        assert_eq!((key.name.as_ref(), value.name.as_ref()), ("key", "value"));
+    }
+
+    #[test]
+    fn records_real_and_synthetic_oneofs() {
+        let mut first = string_field("first", 1);
+        first.oneof_index = Some(0);
+        let mut second = string_field("second", 2);
+        second.oneof_index = Some(0);
+        let mut optional = string_field("maybe", 3);
+        optional.oneof_index = Some(1);
+        optional.proto3_optional = Some(true);
+        let mut message = request_message(vec![first, second, optional]);
+        message.oneof_decl = vec![
+            OneofDescriptorProto {
+                name: Some("choice".into()),
+                options: MessageField::some(protovalidate_oneof_required()),
+                ..Default::default()
+            },
+            OneofDescriptorProto {
+                name: Some("_maybe".into()),
+                ..Default::default()
+            },
+        ];
+
+        let ir = build_ir(&CodeGeneratorRequest {
+            proto_file: vec![file_descriptor(vec![message], Vec::new(), None)],
+            ..Default::default()
+        })
+        .unwrap();
+
+        let message = &ir.files[0].messages[0];
+        assert_eq!(message.oneofs.len(), 2);
+        assert_eq!(message.oneofs[0].name.as_ref(), "choice");
+        assert!(message.oneofs[0].required);
+        assert!(!message.oneofs[0].synthetic);
+        assert!(message.oneofs[1].synthetic);
+        assert_eq!(message.fields[0].oneof, Some(0));
+        assert_eq!(message.fields[1].oneof, Some(0));
+        assert_eq!(message.fields[2].oneof, None);
+        assert!(message.fields[2].proto3_optional);
+    }
+
+    #[test]
+    fn marks_annotated_fields_required() {
+        let plain = string_field("plain", 1);
+        let mut unpacked = string_field("unpacked", 2);
+        unpacked.options = MessageField::some(field_behavior_required(false));
+        let mut packed = string_field("packed", 3);
+        packed.options = MessageField::some(field_behavior_required(true));
+        let mut validated = string_field("validated", 4);
+        validated.options = MessageField::some(protovalidate_field_required());
+
+        let ir = build_ir(&CodeGeneratorRequest {
+            proto_file: vec![file_descriptor(
+                vec![request_message(vec![plain, unpacked, packed, validated])],
+                Vec::new(),
+                None,
+            )],
+            ..Default::default()
+        })
+        .unwrap();
+
+        let required = ir.files[0].messages[0]
+            .fields
+            .iter()
+            .map(|field| (field.name.as_ref(), field.required))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            required,
+            vec![
+                ("plain", false),
+                ("unpacked", true),
+                ("packed", true),
+                ("validated", true)
+            ]
+        );
+    }
+
+    fn enum_descriptor(name: &str, values: &[&str]) -> EnumDescriptorProto {
+        EnumDescriptorProto {
+            name: Some(name.into()),
+            value: values
+                .iter()
+                .enumerate()
+                .map(|(number, value)| EnumValueDescriptorProto {
+                    name: Some((*value).into()),
+                    number: Some(number as i32),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
 
     #[test]
     fn extracts_unary_post_with_path_fields_and_single_field_body() {
@@ -770,6 +1134,12 @@ mod tests {
     }
 
     impl HasComments for super::Service {
+        fn comments(&self) -> &super::CommentSet {
+            &self.comments
+        }
+    }
+
+    impl HasComments for super::EnumType {
         fn comments(&self) -> &super::CommentSet {
             &self.comments
         }

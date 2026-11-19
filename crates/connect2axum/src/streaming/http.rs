@@ -19,7 +19,6 @@ pub use axum_extra::json_lines::JsonLines;
 /// Axum Extra handles the NDJSON framing and deserializes each line with
 /// Buffa's serde helpers. Each owned message is then converted to a
 /// [`StreamMessage`] using the same view decoder as unary REST JSON bodies.
-#[must_use]
 pub fn ndjson_request_stream<M>(lines: JsonLines<M>) -> connectrpc::ServiceStream<StreamMessage<M>>
 where
     M: HasMessageView + 'static,

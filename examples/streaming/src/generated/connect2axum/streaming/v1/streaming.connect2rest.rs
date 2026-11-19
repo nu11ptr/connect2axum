@@ -5,7 +5,7 @@
 pub mod greeter_service_rest {
     #![allow(unused_imports)]
     use std::sync::Arc;
-    use axum::extract::{Path, Query, State};
+    use axum::extract::{Path, State};
     use axum::Json;
     use http::{Extensions, HeaderMap};
     pub async fn expand<S>(

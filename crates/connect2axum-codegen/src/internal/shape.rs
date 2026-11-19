@@ -208,6 +208,7 @@ impl<'a> RequestPlanner<'a> {
                 comments: CommentSet::default(),
                 fields: Vec::new(),
                 messages: Vec::new(),
+                ..Default::default()
             });
         }
 

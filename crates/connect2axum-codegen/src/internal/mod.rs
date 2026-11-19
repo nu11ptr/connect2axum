@@ -1,5 +1,6 @@
 pub mod api_names;
 pub mod asyncapi;
+pub mod field_options;
 pub mod guardrails;
 pub mod http;
 pub mod ir;

@@ -1008,8 +1008,10 @@ mod tests {
                 comments: CommentSet::default(),
                 fields: Vec::new(),
                 messages: Vec::new(),
+                ..Default::default()
             }],
             services: Vec::new(),
+            ..Default::default()
         });
         ir.files[0].messages[0].fields.push(Field {
             name: "other".into(),
@@ -1018,6 +1020,7 @@ mod tests {
             label: Some(FieldLabel::Optional),
             kind: FieldKind::Message("other.v1.HelloRequest".into()),
             comments: CommentSet::default(),
+            ..Default::default()
         });
 
         let err =
@@ -1049,6 +1052,7 @@ mod tests {
             files_to_generate: vec!["streaming.proto".into()],
             descriptor_files: vec![descriptor_file()],
             files: vec![ProtoFile {
+                enums: Vec::new(),
                 name: "streaming.proto".into(),
                 package: "streaming.v1".into(),
                 messages: vec![
@@ -1061,6 +1065,7 @@ mod tests {
                             string_field("last_name", "lastName"),
                         ],
                         messages: Vec::new(),
+                        ..Default::default()
                     },
                     Message {
                         name: "HelloReply".into(),
@@ -1068,6 +1073,7 @@ mod tests {
                         comments: comments("Response payload."),
                         fields: vec![string_field("message", "message")],
                         messages: Vec::new(),
+                        ..Default::default()
                     },
                     Message {
                         name: "HelloSummary".into(),
@@ -1080,8 +1086,10 @@ mod tests {
                             label: Some(FieldLabel::Repeated),
                             kind: FieldKind::String,
                             comments: CommentSet::default(),
+                            ..Default::default()
                         }],
                         messages: Vec::new(),
+                        ..Default::default()
                     },
                 ],
                 services: vec![Service {
@@ -1195,6 +1203,7 @@ mod tests {
             label: Some(FieldLabel::Optional),
             kind: FieldKind::String,
             comments: CommentSet::default(),
+            ..Default::default()
         }
     }
 

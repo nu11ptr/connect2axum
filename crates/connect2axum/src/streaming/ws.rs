@@ -85,7 +85,6 @@ where
 ///
 /// Client and bidirectional streaming WebSocket clients can end the request
 /// stream without closing the socket by sending an empty text frame.
-#[must_use]
 pub fn make_ws_stream_request<M>(ws: SplitStream<WebSocket>) -> ServiceStream<StreamMessage<M>>
 where
     M: HasMessageView + DeserializeOwned + 'static,

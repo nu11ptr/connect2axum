@@ -425,12 +425,14 @@ mod tests {
                     package: "one.v1".into(),
                     messages: Vec::new(),
                     services: Vec::new(),
+                    ..Default::default()
                 },
                 ProtoFile {
                     name: "two.proto".into(),
                     package: "two.v1".into(),
                     messages: Vec::new(),
                     services: Vec::new(),
+                    ..Default::default()
                 },
             ],
             ..Default::default()
@@ -500,6 +502,7 @@ mod tests {
         DescriptorIr {
             files_to_generate: vec!["streaming.proto".into()],
             files: vec![ProtoFile {
+                enums: Vec::new(),
                 name: "streaming.proto".into(),
                 package: "streaming.v1".into(),
                 messages: vec![
@@ -514,8 +517,10 @@ mod tests {
                             label: Some(FieldLabel::Optional),
                             kind: FieldKind::String,
                             comments: Default::default(),
+                            ..Default::default()
                         }],
                         messages: Vec::new(),
+                        ..Default::default()
                     },
                     Message {
                         name: "Reply".into(),
@@ -523,6 +528,7 @@ mod tests {
                         comments: Default::default(),
                         fields: Vec::new(),
                         messages: Vec::new(),
+                        ..Default::default()
                     },
                 ],
                 services: vec![Service {

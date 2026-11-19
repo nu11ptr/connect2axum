@@ -5,7 +5,7 @@
 pub mod greeter_service_rest {
     #![allow(unused_imports)]
     use std::sync::Arc;
-    use axum::extract::{Path, Query, State};
+    use axum::extract::{Path, State};
     use axum::Json;
     use http::{Extensions, HeaderMap};
     /// The request message containing the user's name.
@@ -31,7 +31,9 @@ pub mod greeter_service_rest {
     pub async fn say_hello<S>(
         State(service__): State<Arc<S>>,
         Path(first_name__): Path<::std::string::String>,
-        Query(query__): Query<HelloRequestQuery__>,
+        ::connect2axum::ProtoQuery(
+            query__,
+        ): ::connect2axum::ProtoQuery<HelloRequestQuery__>,
         headers__: HeaderMap,
         extensions__: Extensions,
         Json(body__): Json<HelloRequestBody__>,
@@ -66,7 +68,7 @@ pub mod greeter_service_rest {
         S: crate::connect::hello::v1::GreeterService + Send + Sync + 'static,
     {
         axum::Router::new()
-            .route("/hello/{first_name}", axum::routing::post(say_hello::<S>))
+            .route("/hello/{p0}", axum::routing::post(say_hello::<S>))
             .with_state(service)
     }
 }
