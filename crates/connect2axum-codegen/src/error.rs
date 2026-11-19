@@ -39,6 +39,16 @@ pub enum CodegenErrKind {
     DuplicateRoute,
     /// Short API document component names would collide.
     ApiNameCollision,
+    /// The MCP generator config file could not be read or parsed.
+    InvalidMcpConfig,
+    /// An MCP config entry matched no service or method in the files being generated.
+    UnmatchedMcpConfigEntry,
+    /// A generated MCP tool name is empty, too long, or uses disallowed characters.
+    InvalidToolName,
+    /// Two MCP tools would have the same name.
+    DuplicateToolName,
+    /// An RPC's request message cannot be an MCP tool's arguments.
+    UnsupportedMcpRequest,
 }
 
 impl UniKind for CodegenErrKind {
@@ -65,6 +75,13 @@ impl UniKind for CodegenErrKind {
             }
             Self::DuplicateRoute => Some("duplicate generated route".into()),
             Self::ApiNameCollision => Some("API document component name collision".into()),
+            Self::InvalidMcpConfig => Some("invalid MCP generator config".into()),
+            Self::UnmatchedMcpConfigEntry => {
+                Some("MCP config entry matched no service or method".into())
+            }
+            Self::InvalidToolName => Some("invalid MCP tool name".into()),
+            Self::DuplicateToolName => Some("duplicate MCP tool name".into()),
+            Self::UnsupportedMcpRequest => Some("unsupported MCP tool request message".into()),
         }
     }
 }

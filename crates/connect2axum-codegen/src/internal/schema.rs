@@ -33,7 +33,6 @@ enum Refs<'a> {
         names: ComponentNameTracker,
         pointer_prefix: &'static str,
     },
-    #[allow(dead_code, reason = "used by the MCP tool catalog")]
     Inline {
         recursive: BTreeMap<SharedStr, bool>,
     },
@@ -70,7 +69,6 @@ impl<'a> SchemaBuilder<'a> {
         }
     }
 
-    #[allow(dead_code, reason = "used by the MCP tool catalog")]
     /// Builds a self-contained schema for one message: nested messages are
     /// inlined and recursive ones are placed under `$defs`.
     pub fn inline_root(ir: &'a DescriptorIr, full_name: &str) -> CodegenResult<Value> {
@@ -377,6 +375,14 @@ fn well_known_schema(full_name: &str) -> Option<Value> {
         _ => return None,
     };
     Some(schema)
+}
+
+/// Returns true when a message's ProtoJSON form is a JSON object, which MCP
+/// requires of a tool's arguments. Well-known types such as
+/// `google.protobuf.StringValue` and `Timestamp` are JSON scalars.
+pub fn is_json_object_message(full_name: &str) -> bool {
+    well_known_schema(full_name)
+        .is_none_or(|schema| schema.get("type").and_then(Value::as_str) == Some("object"))
 }
 
 /// The schema for a field kind without message or enum context.

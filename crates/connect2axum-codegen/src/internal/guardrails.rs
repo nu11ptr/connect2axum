@@ -26,6 +26,18 @@ pub fn ensure_unique_routes(
     ensure_unique(CodegenErrKind::DuplicateRoute, "route", scope, values)
 }
 
+pub fn ensure_unique_tool_names(
+    scope: &str,
+    values: impl IntoIterator<Item = (SharedStr, String)>,
+) -> CodegenResult<()> {
+    ensure_unique(
+        CodegenErrKind::DuplicateToolName,
+        "MCP tool name",
+        scope,
+        values,
+    )
+}
+
 fn ensure_unique(
     kind: CodegenErrKind,
     value_kind: &str,
