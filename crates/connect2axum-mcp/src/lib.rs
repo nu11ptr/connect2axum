@@ -18,12 +18,18 @@
 //! The server is stateless. Authentication belongs in an HTTP layer in front
 //! of the MCP route: a handler that returns `unauthenticated` produces an
 //! in-band tool error, not an HTTP 401, and `tools/list` never reaches a
-//! handler.
+//! handler. For clients that log in through OAuth, [`ProtectedResource`] and
+//! [`protected_resource_router`] publish where tokens come from; validating
+//! tokens stays with the application.
 
+mod auth;
 mod error;
 mod server;
 mod tool;
 
+pub use auth::{
+    ProtectedResource, bearer_challenge, insufficient_scope_challenge, protected_resource_router,
+};
 pub use error::{McpErrKind, McpResult};
 pub use server::{McpConfig, make_router};
 pub use tool::{Tool, ToolResult, Tools, ToolsBuilder, error_result, tool_result};

@@ -46,6 +46,21 @@ one `library_service_mcp` module with a handler per tool and a `make_tools`
 function. [`src/lib.rs`](src/lib.rs) passes that to
 `connect2axum_mcp::make_router` and merges the result into the app.
 
+## Authentication
+
+`secured_app_with` in [`src/lib.rs`](src/lib.rs) shows OAuth discovery
+alongside the application's own token check:
+
+- A middleware layer on the MCP route rejects a missing or wrong bearer token
+  with 401 and a `WWW-Authenticate` challenge from
+  `connect2axum_mcp::bearer_challenge`. A real application validates a JWT or
+  API key here instead of comparing a fixed string.
+- On success the layer puts the caller in the request extensions, and the
+  service reads it from the Connect context.
+- `connect2axum_mcp::protected_resource_router` serves the RFC 9728 metadata
+  document, outside the auth layer, at
+  `/.well-known/oauth-protected-resource/mcp`.
+
 ## Tests
 
 `cargo test -p mcp` drives `tools/list` and `tools/call` through the full

@@ -5,7 +5,7 @@ use http::{Method, Request, StatusCode};
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 
-use super::{Library, app_with};
+use super::{Library, app_with, secured_app_with};
 
 const PROTOCOL: &str = "2026-07-28";
 
@@ -198,4 +198,64 @@ async fn rest_and_mcp_share_one_service() {
 
     let found = call(app_with(library), "LibraryService_SearchBooks", json!({})).await;
     assert_eq!(found["structuredContent"]["books"][0]["title"], "Dune");
+}
+
+fn protected_resource() -> connect2axum_mcp::ProtectedResource {
+    connect2axum_mcp::ProtectedResource::new("http://localhost/mcp")
+        .unwrap()
+        .authorization_server("https://auth.example.com")
+}
+
+#[tokio::test]
+async fn unauthenticated_requests_get_a_challenge_pointing_at_discovery() {
+    let app = secured_app_with(Arc::default(), &protected_resource(), "secret");
+
+    let response = app
+        .clone()
+        .oneshot(rpc("tools/list", json!({})))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        response.headers()["www-authenticate"],
+        r#"Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource/mcp""#
+    );
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/.well-known/oauth-protected-resource/mcp")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let document: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(document["resource"], "http://localhost/mcp");
+    assert_eq!(
+        document["authorization_servers"],
+        json!(["https://auth.example.com"])
+    );
+}
+
+#[tokio::test]
+async fn authenticated_calls_see_the_identity_from_the_auth_layer() {
+    let app = secured_app_with(Arc::default(), &protected_resource(), "secret");
+    let mut request = rpc(
+        "tools/call",
+        json!({ "name": "LibraryService_AddBook", "arguments": { "title": "Beloved", "author": "Toni Morrison" } }),
+    );
+    request
+        .headers_mut()
+        .insert("authorization", "Bearer secret".parse().unwrap());
+
+    let body = send(app, request).await;
+
+    assert_eq!(body["result"]["isError"], false, "{body}");
+    assert_eq!(
+        body["result"]["structuredContent"]["tags"]["added_by"],
+        "reader"
+    );
 }
