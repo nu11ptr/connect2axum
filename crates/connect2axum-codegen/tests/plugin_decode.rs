@@ -28,6 +28,7 @@ fn plugins_decode_schemas_larger_than_the_runtime_element_budget() {
         env!("CARGO_BIN_EXE_protoc-gen-connect2ws"),
         env!("CARGO_BIN_EXE_protoc-gen-connect2openapi"),
         env!("CARGO_BIN_EXE_protoc-gen-connect2asyncapi"),
+        env!("CARGO_BIN_EXE_protoc-gen-connect2mcp"),
     ] {
         let mut child = Command::new(binary)
             .stdin(Stdio::piped())

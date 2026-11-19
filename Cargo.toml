@@ -5,6 +5,7 @@ members = [
     "crates/connect2axum-codegen",
     "crates/connect2axum-mcp",
     "crates/connect2axum-scalar",
+    "examples/mcp",
     "examples/simple",
     "examples/streaming",
     "examples/ws-streaming",

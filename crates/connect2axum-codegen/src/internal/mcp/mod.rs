@@ -2,4 +2,5 @@
 
 pub mod catalog;
 pub mod config;
+pub mod generate;
 pub mod options;

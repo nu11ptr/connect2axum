@@ -38,14 +38,6 @@ pub struct CatalogTool<'a> {
     pub input_schema: Value,
 }
 
-impl<'a> Catalog<'a> {
-    pub fn file(&self, name: &str) -> Option<&CatalogFile<'a>> {
-        self.files
-            .iter()
-            .find(|file| file.file.name.as_ref() == name)
-    }
-}
-
 pub fn build_catalog<'a>(
     ir: &'a DescriptorIr,
     config: &McpConfigFile,
@@ -473,6 +465,6 @@ mod tests {
 
         let catalog = build_catalog(&ir, &McpConfigFile::default()).unwrap();
 
-        assert!(catalog.file("a.proto").is_some());
+        assert_eq!(catalog.files[0].file.name.as_ref(), "a.proto");
     }
 }

@@ -1,0 +1,3 @@
+# Which RPCs become MCP tools. Every unary RPC is exposed unless listed here.
+exclude:
+  - library.v1.LibraryService.DeleteBook

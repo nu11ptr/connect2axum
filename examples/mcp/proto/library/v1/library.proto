@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package library.v1;
+
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+
+// Manages a small in-memory book catalog.
+service LibraryService {
+  // Adds a book to the catalog and returns it with its assigned ID.
+  rpc AddBook(AddBookRequest) returns (Book) {
+    option (google.api.http) = {
+      post: "/books"
+      body: "*"
+    };
+  }
+
+  // Finds books by author or genre. This RPC has no REST binding but is still
+  // an MCP tool.
+  rpc SearchBooks(SearchBooksRequest) returns (SearchBooksResponse);
+
+  // Removes a book. Excluded from MCP in connect2mcp.yaml.
+  rpc DeleteBook(DeleteBookRequest) returns (DeleteBookResponse);
+
+  // Streams every book. Streaming RPCs are not MCP tools.
+  rpc WatchBooks(WatchBooksRequest) returns (stream Book);
+}
+
+// A literary genre.
+enum Genre {
+  GENRE_UNSPECIFIED = 0;
+  GENRE_FICTION = 1;
+  GENRE_HISTORY = 2;
+  GENRE_SCIENCE = 3;
+}
+
+// A book in the catalog.
+message Book {
+  // The ID assigned by the catalog.
+  string id = 1;
+
+  // The book's title.
+  string title = 2;
+
+  // The book's author.
+  string author = 3;
+
+  // The book's genre.
+  Genre genre = 4;
+
+  // Free-form labels, such as "shelf": "B3".
+  map<string, string> tags = 5;
+
+  // Who published the book.
+  Publisher publisher = 6;
+}
+
+// A book publisher.
+message Publisher {
+  // The publisher's name.
+  string name = 1;
+
+  // The country the publisher is based in.
+  string country = 2;
+}
+
+// The request message for AddBook.
+message AddBookRequest {
+  // The book's title.
+  string title = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // The book's author.
+  string author = 2 [(google.api.field_behavior) = REQUIRED];
+
+  // The book's genre.
+  Genre genre = 3;
+
+  // Free-form labels, such as "shelf": "B3".
+  map<string, string> tags = 4;
+
+  // Who published the book.
+  Publisher publisher = 5;
+}
+
+// The request message for SearchBooks.
+message SearchBooksRequest {
+  // What to search by.
+  oneof filter {
+    // Books by this author.
+    string author = 1;
+
+    // Books in this genre.
+    Genre genre = 2;
+  }
+
+  // The maximum number of books to return. Zero means no limit.
+  uint32 limit = 3;
+}
+
+// The response message for SearchBooks.
+message SearchBooksResponse {
+  // The matching books.
+  repeated Book books = 1;
+}
+
+// The request message for DeleteBook.
+message DeleteBookRequest {
+  // The ID of the book to remove.
+  string id = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+// The response message for DeleteBook.
+message DeleteBookResponse {}
+
+// The request message for WatchBooks.
+message WatchBooksRequest {}

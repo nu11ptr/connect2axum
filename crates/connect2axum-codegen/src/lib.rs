@@ -6,7 +6,7 @@ pub(crate) mod internal;
 
 use crate::internal::ir::build_ir;
 use crate::internal::options::CodegenOptions;
-use crate::internal::{asyncapi, openapi, rest, ws};
+use crate::internal::{asyncapi, mcp, openapi, rest, ws};
 
 pub use connectrpc_codegen::plugin::{CodeGeneratorRequest, CodeGeneratorResponse};
 pub use error::{CodegenErrKind, CodegenResult};
@@ -118,6 +118,24 @@ pub fn try_generate_asyncapi(
     asyncapi::generate(request).map(with_supported_features)
 }
 
+/// Generate an MCP tool wrapper protoc plugin response for a request.
+///
+/// Errors are returned through the protoc plugin error field so `buf generate`
+/// and `protoc` can display them as compiler-plugin failures.
+#[must_use]
+pub fn generate_mcp(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
+    match try_generate_mcp(request) {
+        Ok(response) => response,
+        Err(err) => plugin_error_response(err.to_string()),
+    }
+}
+
+/// Generate an MCP tool wrapper protoc plugin response, returning typed
+/// project errors.
+pub fn try_generate_mcp(request: &CodeGeneratorRequest) -> CodegenResult<CodeGeneratorResponse> {
+    mcp::generate::generate(request).map(with_supported_features)
+}
+
 fn plugin_error_response(error: String) -> CodeGeneratorResponse {
     with_supported_features(CodeGeneratorResponse {
         error: Some(error),
@@ -144,7 +162,7 @@ mod tests {
 
     use super::{
         CodeGeneratorRequest, CodeGeneratorResponse, FEATURE_PROTO3_OPTIONAL, generate_asyncapi,
-        generate_openapi, generate_rest, generate_ws, try_generate_rest,
+        generate_mcp, generate_openapi, generate_rest, generate_ws, try_generate_rest,
     };
 
     #[test]
@@ -166,6 +184,7 @@ mod tests {
             generate_ws(&request),
             generate_openapi(&request),
             generate_asyncapi(&request),
+            generate_mcp(&request),
         ] {
             assert_eq!(
                 response.supported_features.unwrap_or_default() & FEATURE_PROTO3_OPTIONAL,
