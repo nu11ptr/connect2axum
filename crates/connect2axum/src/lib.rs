@@ -209,7 +209,13 @@ fn encoded_json_response(response: Response<buffa::bytes::Bytes>) -> http::Respo
         .unwrap_or_else(|_| error_response(ConnectError::internal("failed to build REST response")))
 }
 
-pub(crate) fn encode_json_compatible<M, B>(body: &B) -> Result<buffa::bytes::Bytes, ConnectError>
+/// Encodes a response body as ProtoJSON.
+///
+/// The body's own JSON encoding is used when it has one. A body that only
+/// supports protobuf, such as a Buffa view, is decoded into the owned output
+/// message `M` and serialized from there. Generated REST and MCP adapters use
+/// this so every transport produces the same JSON.
+pub fn encode_json_compatible<M, B>(body: &B) -> Result<buffa::bytes::Bytes, ConnectError>
 where
     M: Message + Serialize,
     B: Encodable<M>,
