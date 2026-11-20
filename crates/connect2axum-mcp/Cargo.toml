@@ -19,7 +19,7 @@ all-features = true
 [dependencies]
 axum.workspace = true
 buffa.workspace = true
-connect2axum = { path = "../connect2axum", version = "0.4.2" }
+connect2axum = { path = "../connect2axum", version = "0.4.3" }
 connectrpc.workspace = true
 flexstr.workspace = true
 futures-util.workspace = true

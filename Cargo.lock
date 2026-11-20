@@ -279,7 +279,7 @@ dependencies = [
 
 [[package]]
 name = "connect2axum"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "async-stream",
  "axum",
@@ -297,7 +297,7 @@ dependencies = [
 
 [[package]]
 name = "connect2axum-codegen"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "buffa",
  "buffa-codegen",
