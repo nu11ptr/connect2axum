@@ -6,7 +6,6 @@ readme = "../../README.md"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
-homepage.workspace = true
 repository.workspace = true
 rust-version = "1.88"
 documentation = "https://docs.rs/connect2axum-mcp"

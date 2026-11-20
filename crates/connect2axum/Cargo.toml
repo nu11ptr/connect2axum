@@ -6,7 +6,6 @@ readme = "../../README.md"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
-homepage.workspace = true
 repository.workspace = true
 documentation = "https://docs.rs/connect2axum"
 keywords = ["axum", "connectrpc", "protobuf", "rest", "websocket"]
