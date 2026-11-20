@@ -10,11 +10,15 @@ use super::{Library, app_with, secured_app_with};
 const PROTOCOL: &str = "2026-07-28";
 
 fn rpc(method: &str, params: Value) -> Request<Body> {
+    rpc_with_capabilities(method, params, json!({}))
+}
+
+fn rpc_with_capabilities(method: &str, params: Value, capabilities: Value) -> Request<Body> {
     let mut params = params;
     params["_meta"] = json!({
         "io.modelcontextprotocol/protocolVersion": PROTOCOL,
         "io.modelcontextprotocol/clientInfo": { "name": "example-test", "version": "1.0.0" },
-        "io.modelcontextprotocol/clientCapabilities": {}
+        "io.modelcontextprotocol/clientCapabilities": capabilities
     });
     let mut builder = Request::builder()
         .method(Method::POST)
@@ -61,7 +65,11 @@ async fn lists_unary_tools_except_excluded_and_streaming() {
 
     assert_eq!(
         names,
-        vec!["LibraryService_AddBook", "LibraryService_SearchBooks"]
+        vec![
+            "LibraryService_AddBook",
+            "LibraryService_SearchBooks",
+            "LibraryService_DeleteBook"
+        ]
     );
 
     let add = &tools[0];
@@ -159,7 +167,7 @@ async fn excluded_rpc_is_not_callable_over_mcp_but_stays_on_connect() {
         app_with(Arc::default()),
         rpc(
             "tools/call",
-            json!({ "name": "LibraryService_DeleteBook", "arguments": { "id": "x" } }),
+            json!({ "name": "LibraryService_ClearCatalog", "arguments": {} }),
         ),
     )
     .await;
@@ -169,15 +177,93 @@ async fn excluded_rpc_is_not_callable_over_mcp_but_stays_on_connect() {
         .oneshot(
             Request::builder()
                 .method(Method::POST)
-                .uri("/library.v1.LibraryService/DeleteBook")
+                .uri("/library.v1.LibraryService/ClearCatalog")
                 .header("content-type", "application/json")
                 .header("connect-protocol-version", "1")
-                .body(Body::from(r#"{"id":"missing"}"#))
+                .body(Body::from("{}"))
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn delete_runs_only_after_the_user_confirms() {
+    let library = Arc::new(Library::default());
+    call(
+        app_with(library.clone()),
+        "LibraryService_AddBook",
+        json!({ "title": "Dune", "author": "Frank Herbert" }),
+    )
+    .await;
+    let elicitation = json!({ "elicitation": {} });
+    let delete = |extra: Value| {
+        let mut params = json!({
+            "name": "LibraryService_DeleteBook",
+            "arguments": { "id": "book-1" }
+        });
+        for (key, value) in extra.as_object().unwrap() {
+            params[key] = value.clone();
+        }
+        rpc_with_capabilities("tools/call", params, elicitation.clone())
+    };
+
+    // First call: the server asks the client to confirm with the user.
+    let asked = send(app_with(library.clone()), delete(json!({}))).await;
+    let result = &asked["result"];
+    assert_eq!(result["resultType"], "input_required", "{asked}");
+    assert!(
+        result["inputRequests"]["confirm"]["params"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("LibraryService_DeleteBook")
+    );
+    let remaining = call(
+        app_with(library.clone()),
+        "LibraryService_SearchBooks",
+        json!({}),
+    )
+    .await;
+    assert_eq!(remaining["structuredContent"]["books"][0]["id"], "book-1");
+
+    // The user declines: nothing is deleted.
+    let declined = send(
+        app_with(library.clone()),
+        delete(json!({ "inputResponses": { "confirm": { "action": "decline" } } })),
+    )
+    .await;
+    assert_eq!(declined["result"]["isError"], true, "{declined}");
+    let remaining = call(
+        app_with(library.clone()),
+        "LibraryService_SearchBooks",
+        json!({}),
+    )
+    .await;
+    assert_eq!(remaining["structuredContent"]["books"][0]["id"], "book-1");
+
+    // The user accepts: the call reaches the service.
+    let accepted = send(
+        app_with(library.clone()),
+        delete(json!({ "inputResponses": { "confirm": { "action": "accept" } } })),
+    )
+    .await;
+    assert_eq!(accepted["result"]["isError"], false, "{accepted}");
+    let remaining = call(app_with(library), "LibraryService_SearchBooks", json!({})).await;
+    assert_eq!(remaining["structuredContent"], json!({}), "{remaining}");
+}
+
+#[tokio::test]
+async fn clients_without_elicitation_cannot_delete() {
+    let library = Arc::new(Library::default());
+    let refused = call(
+        app_with(library),
+        "LibraryService_DeleteBook",
+        json!({ "id": "book-1" }),
+    )
+    .await;
+    assert_eq!(refused["isError"], true, "{refused}");
+    assert_eq!(refused["structuredContent"]["code"], "failed_precondition");
 }
 
 #[tokio::test]

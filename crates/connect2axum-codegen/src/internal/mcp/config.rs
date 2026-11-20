@@ -16,6 +16,8 @@ pub struct McpConfigFile {
     pub include: Option<Vec<String>>,
     /// Always removed, with or without `include`.
     pub exclude: Vec<String>,
+    /// Tools that run only after the user confirms each call.
+    pub confirm: Vec<String>,
     /// Tool name overrides. A service key replaces the service part of the
     /// default name; a method key replaces the whole name.
     pub names: BTreeMap<String, String>,
@@ -52,12 +54,13 @@ mod tests {
     #[test]
     fn parses_all_sections() {
         let config = McpConfigFile::from_yaml(
-            "include:\n  - a.v1.S\nexclude:\n  - a.v1.S.Delete\nnames:\n  a.v1.S: Short\n",
+            "include:\n  - a.v1.S\nexclude:\n  - a.v1.S.Delete\nconfirm:\n  - a.v1.S.Update\nnames:\n  a.v1.S: Short\n",
         )
         .unwrap();
 
         assert_eq!(config.include, Some(vec!["a.v1.S".to_owned()]));
         assert_eq!(config.exclude, vec!["a.v1.S.Delete".to_owned()]);
+        assert_eq!(config.confirm, vec!["a.v1.S.Update".to_owned()]);
         assert_eq!(config.names["a.v1.S"], "Short");
     }
 

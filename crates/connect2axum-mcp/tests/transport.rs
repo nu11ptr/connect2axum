@@ -388,3 +388,118 @@ impl Message for Greeting {
 
     fn clear(&mut self) {}
 }
+
+fn confirm_app() -> axum::Router {
+    let tools = Tools::builder(Arc::new(Greeter))
+        .tool(
+            Tool::new("Greeter_Greet", GREET_SCHEMA).requires_confirmation(),
+            greet,
+        )
+        .build();
+    make_router(McpConfig::new("test", "1.0.0"), [tools]).unwrap()
+}
+
+async fn call_confirmed(capabilities: Value, extra: Value) -> Value {
+    let mut meta = current_meta();
+    meta["io.modelcontextprotocol/clientCapabilities"] = capabilities;
+    let mut params = json!({
+        "name": "Greeter_Greet",
+        "arguments": { "name": "Grace" },
+        "_meta": meta
+    });
+    for (key, value) in extra.as_object().unwrap() {
+        params[key] = value.clone();
+    }
+    let (status, _, body) = send(
+        confirm_app(),
+        current_request(&rpc(2, "tools/call", params)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
+#[tokio::test]
+async fn confirmation_asks_through_elicitation_then_runs_on_accept() {
+    let elicitation = json!({ "elicitation": {} });
+
+    let body = call_confirmed(elicitation.clone(), json!({})).await;
+    let result = &body["result"];
+    assert_eq!(result["resultType"], "input_required", "{body}");
+    let ask = &result["inputRequests"]["confirm"];
+    assert_eq!(ask["method"], "elicitation/create", "{body}");
+    assert_eq!(ask["params"]["mode"], "form");
+    let message = ask["params"]["message"].as_str().unwrap();
+    assert!(message.contains("Greeter_Greet"), "{message}");
+    assert!(message.contains("\"Grace\""), "{message}");
+    assert_eq!(
+        ask["params"]["requestedSchema"]["properties"],
+        json!({}),
+        "{body}"
+    );
+
+    let body = call_confirmed(
+        elicitation,
+        json!({ "inputResponses": { "confirm": { "action": "accept" } } }),
+    )
+    .await;
+    assert_eq!(
+        body["result"]["structuredContent"]["message"], "Hello, Grace!",
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn declined_confirmation_is_an_error_result() {
+    for action in ["decline", "cancel"] {
+        let body = call_confirmed(
+            json!({ "elicitation": { "form": {} } }),
+            json!({ "inputResponses": { "confirm": { "action": action } } }),
+        )
+        .await;
+        assert_eq!(body["result"]["isError"], true, "{body}");
+        assert_eq!(
+            body["result"]["structuredContent"]["code"], "permission_denied",
+            "{body}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn clients_that_cannot_confirm_get_an_error_not_a_call() {
+    // Current protocol without form elicitation: no capability, or URL only.
+    for capabilities in [json!({}), json!({ "elicitation": { "url": {} } })] {
+        let body = call_confirmed(
+            capabilities,
+            json!({ "inputResponses": { "confirm": { "action": "accept" } } }),
+        )
+        .await;
+        assert_eq!(body["result"]["isError"], true, "{body}");
+        assert_eq!(
+            body["result"]["structuredContent"]["code"], "failed_precondition",
+            "{body}"
+        );
+    }
+
+    // Legacy protocol: elicitation needs a session, which this server never
+    // creates.
+    let call = rpc(
+        3,
+        "tools/call",
+        json!({ "name": "Greeter_Greet", "arguments": { "name": "Grace" } }),
+    );
+    let (status, _, body) = send(
+        confirm_app(),
+        post(&call)
+            .header("mcp-protocol-version", LEGACY)
+            .body(Body::from(call.to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["isError"], true, "{body}");
+    let message = body["result"]["structuredContent"]["message"]
+        .as_str()
+        .unwrap();
+    assert!(message.contains("2026-07-28"), "{message}");
+}

@@ -53,6 +53,31 @@ pub mod library_service_mcp {
             _,
         >(service__.search_books(ctx__, request__).await)
     }
+    /// Removes a book. Over MCP, the user confirms each call (see
+    /// connect2mcp.yaml).
+    pub async fn delete_book<S>(
+        service__: Arc<S>,
+        ctx__: ::connectrpc::RequestContext,
+        request__: crate::proto::library::v1::DeleteBookRequest,
+    ) -> ::connect2axum_mcp::ToolResult
+    where
+        S: crate::connect::library::v1::LibraryService + Send + Sync + 'static,
+    {
+        let request__ = match ::connect2axum::owned_view::<
+            crate::proto::library::v1::__buffa::view::DeleteBookRequestView<'static>,
+        >(&request__) {
+            Ok(request__) => request__,
+            Err(err__) => return ::connect2axum_mcp::error_result(err__),
+        };
+        let request__ = ::connectrpc::ServiceRequest::from_parts(
+            request__.reborrow(),
+            request__.bytes(),
+        );
+        ::connect2axum_mcp::tool_result::<
+            crate::proto::library::v1::DeleteBookResponse,
+            _,
+        >(service__.delete_book(ctx__, request__).await)
+    }
     pub fn make_tools<S>(service: Arc<S>) -> ::connect2axum_mcp::Tools
     where
         S: crate::connect::library::v1::LibraryService + Send + Sync + 'static,
@@ -149,6 +174,29 @@ pub mod library_service_mcp {
                         "Finds books by author or genre. This RPC has no REST binding but is still\nan MCP tool.",
                     ),
                 search_books::<S>,
+            )
+            .tool(
+                ::connect2axum_mcp::Tool::new(
+                        "LibraryService_DeleteBook",
+                        r#"{
+  "type": "object",
+  "description": "The request message for DeleteBook.",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "The ID of the book to remove."
+    }
+  },
+  "required": [
+    "id"
+  ]
+}"#,
+                    )
+                    .description(
+                        "Removes a book. Over MCP, the user confirms each call (see\nconnect2mcp.yaml).",
+                    )
+                    .requires_confirmation(),
+                delete_book::<S>,
             )
             .build()
     }

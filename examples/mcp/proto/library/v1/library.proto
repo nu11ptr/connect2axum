@@ -19,8 +19,12 @@ service LibraryService {
   // an MCP tool.
   rpc SearchBooks(SearchBooksRequest) returns (SearchBooksResponse);
 
-  // Removes a book. Excluded from MCP in connect2mcp.yaml.
+  // Removes a book. Over MCP, the user confirms each call (see
+  // connect2mcp.yaml).
   rpc DeleteBook(DeleteBookRequest) returns (DeleteBookResponse);
+
+  // Removes every book. Excluded from MCP in connect2mcp.yaml.
+  rpc ClearCatalog(ClearCatalogRequest) returns (ClearCatalogResponse);
 
   // Streams every book. Streaming RPCs are not MCP tools.
   rpc WatchBooks(WatchBooksRequest) returns (stream Book);
@@ -111,6 +115,12 @@ message DeleteBookRequest {
 
 // The response message for DeleteBook.
 message DeleteBookResponse {}
+
+// The request message for ClearCatalog.
+message ClearCatalogRequest {}
+
+// The response message for ClearCatalog.
+message ClearCatalogResponse {}
 
 // The request message for WatchBooks.
 message WatchBooksRequest {}

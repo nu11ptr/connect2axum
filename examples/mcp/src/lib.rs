@@ -27,8 +27,8 @@ pub mod mcp;
 use connect::library::v1::LibraryServiceExt as _;
 use proto::library::v1::__buffa::oneof::search_books_request::Filter;
 use proto::library::v1::{
-    AddBookRequest, Book, DeleteBookRequest, DeleteBookResponse, SearchBooksRequest,
-    SearchBooksResponse, WatchBooksRequest,
+    AddBookRequest, Book, ClearCatalogRequest, ClearCatalogResponse, DeleteBookRequest,
+    DeleteBookResponse, SearchBooksRequest, SearchBooksResponse, WatchBooksRequest,
 };
 
 /// An in-memory book catalog.
@@ -113,6 +113,15 @@ impl connect::library::v1::LibraryService for Library {
             )));
         }
         Response::ok(DeleteBookResponse::default())
+    }
+
+    async fn clear_catalog<'a>(
+        &'a self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, ClearCatalogRequest>,
+    ) -> ServiceResult<impl connectrpc::Encodable<ClearCatalogResponse> + Send + use<'a>> {
+        self.books.lock().expect("library lock").clear();
+        Response::ok(ClearCatalogResponse::default())
     }
 
     async fn watch_books(

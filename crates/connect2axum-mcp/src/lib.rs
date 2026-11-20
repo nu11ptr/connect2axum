@@ -15,6 +15,9 @@
 //! let app = axum::Router::new().merge(mcp);
 //! ```
 //!
+//! A tool marked with [`Tool::requires_confirmation`] runs only after the
+//! user approves each call through MCP elicitation.
+//!
 //! The server is stateless. Authentication belongs in an HTTP layer in front
 //! of the MCP route: a handler that returns `unauthenticated` produces an
 //! in-band tool error, not an HTTP 401, and `tools/list` never reaches a
@@ -23,6 +26,7 @@
 //! tokens stays with the application.
 
 mod auth;
+mod confirm;
 mod error;
 mod server;
 mod tool;

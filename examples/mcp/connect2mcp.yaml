@@ -1,3 +1,7 @@
 # Which RPCs become MCP tools. Every unary RPC is exposed unless listed here.
 exclude:
+  - library.v1.LibraryService.ClearCatalog
+
+# Tools that run only after the user confirms each call.
+confirm:
   - library.v1.LibraryService.DeleteBook

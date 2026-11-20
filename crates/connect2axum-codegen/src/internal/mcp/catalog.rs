@@ -36,6 +36,7 @@ pub struct CatalogTool<'a> {
     pub name: SharedStr,
     pub description: Option<String>,
     pub input_schema: Value,
+    pub requires_confirmation: bool,
 }
 
 pub fn build_catalog<'a>(
@@ -144,6 +145,7 @@ fn catalog_tool<'a>(
         name,
         description: comment_description(&method.comments),
         input_schema: SchemaBuilder::inline_root(ir, method.input_type.as_ref())?,
+        requires_confirmation: selects(&config.confirm),
     }))
 }
 
@@ -192,6 +194,12 @@ fn check_entries_matched(config: &McpConfigFile, known: &BTreeSet<&str>) -> Code
                 .exclude
                 .iter()
                 .map(|entry| ("exclude", entry.as_str())),
+        )
+        .chain(
+            config
+                .confirm
+                .iter()
+                .map(|entry| ("confirm", entry.as_str())),
         )
         .chain(config.names.keys().map(|entry| ("names", entry.as_str())));
 
@@ -370,6 +378,32 @@ mod tests {
     }
 
     #[test]
+    fn confirm_marks_methods_and_whole_services() {
+        let ir = default_ir();
+        let confirmed = |yaml: &str| -> Vec<String> {
+            build_catalog(&ir, &config(yaml))
+                .unwrap()
+                .files
+                .iter()
+                .flat_map(|file| &file.services)
+                .flat_map(|service| &service.tools)
+                .filter(|tool| tool.requires_confirmation)
+                .map(|tool| tool.name.to_string())
+                .collect()
+        };
+
+        assert!(confirmed("").is_empty());
+        assert_eq!(
+            confirmed("confirm:\n  - a.v1.Users.DeleteUser\n"),
+            vec!["Users_DeleteUser"]
+        );
+        assert_eq!(
+            confirmed("confirm:\n  - a.v1.Users\n  - a.v1.Admin.Reset\n"),
+            vec!["Users_GetUser", "Users_DeleteUser", "Admin_Reset"]
+        );
+    }
+
+    #[test]
     fn names_override_service_part_or_whole_name() {
         let ir = default_ir();
 
@@ -388,6 +422,7 @@ mod tests {
         for yaml in [
             "include:\n  - a.v1.Nope\n",
             "exclude:\n  - a.v1.Users.Gone\n",
+            "confirm:\n  - a.v1.Users.Gone\n",
             "names:\n  Users: X\n",
         ] {
             let err = build_catalog(&ir, &config(yaml)).err().unwrap();

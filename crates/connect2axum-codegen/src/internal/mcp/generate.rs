@@ -217,6 +217,9 @@ impl RustGenerator<'_> {
                 let description = tool.description.as_deref().map(|description| {
                     quote! { .description(#description) }
                 });
+                let confirmation = tool
+                    .requires_confirmation
+                    .then(|| quote! { .requires_confirmation() });
                 let method_ident = parse_ident(
                     self.resolver
                         .method_fn_name(tool.method.name.as_ref())
@@ -225,7 +228,7 @@ impl RustGenerator<'_> {
                 )?;
                 Ok(quote! {
                     .tool(
-                        #mcp::Tool::new(#name, #schema)#description,
+                        #mcp::Tool::new(#name, #schema)#description #confirmation,
                         #method_ident::<S>,
                     )
                 })
@@ -583,6 +586,34 @@ mod tests {
         assert!(content.contains("crate::rt::owned_view"));
         assert!(content.contains("-> crate::m::ToolResult"));
         assert!(content.contains("S: crate::c::a::v1::Svc"));
+    }
+
+    #[test]
+    fn confirmed_tools_require_confirmation() {
+        let proto = file(
+            "a.proto",
+            "a.v1",
+            vec![service(
+                "Svc",
+                vec![
+                    method("Get", ".a.v1.Request", ".a.v1.Reply"),
+                    method("Delete", ".a.v1.Request", ".a.v1.Reply"),
+                ],
+            )],
+        );
+        let config =
+            std::env::temp_dir().join(format!("connect2mcp-confirm-{}.yaml", std::process::id()));
+        std::fs::write(&config, "confirm:\n  - a.v1.Svc.Delete\n").unwrap();
+
+        let files = generate_files(vec![proto], Some(&format!("config={}", config.display())));
+        std::fs::remove_file(&config).unwrap();
+
+        let content = &files[0].1;
+        assert_eq!(content.matches(".requires_confirmation()").count(), 1);
+        let delete = content.find("\"Svc_Delete\"").unwrap();
+        let confirmation = content.find(".requires_confirmation()").unwrap();
+        assert!(confirmation > delete, "{content}");
+        syn::parse_file(content).expect("generated code parses");
     }
 
     #[test]

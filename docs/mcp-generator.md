@@ -59,8 +59,12 @@ include:
 
 # Always removed, with or without `include`.
 exclude:
-  - billing.v1.InvoiceService.DeleteInvoice
   - billing.v1.AdminService
+
+# Run only after the user confirms each call. See Confirmation below.
+confirm:
+  - billing.v1.InvoiceService.DeleteInvoice
+  - billing.v1.PaymentService
 
 # Optional tool name overrides.
 names:
@@ -78,6 +82,7 @@ names:
   RPC cannot silently become exposed again. Keep one config file per
   `buf.gen.yaml`, listing only that run's RPCs.
 - Naming a streaming method in `include` is an error.
+- A service in `confirm` covers all of its tools.
 
 ## Tool Names
 
@@ -133,6 +138,40 @@ A oneof with `(buf.validate.oneof).required = true` is described as "Exactly
 one of: ...". These only describe the requirement to the model; your
 service's own validation still enforces it.
 
+## Confirmation
+
+A tool listed under `confirm` runs only after the user approves the call. The
+generated code marks it with `Tool::requires_confirmation()`, which you can
+also call yourself on a hand-written `Tool`.
+
+The server asks through MCP elicitation, using the stateless round trip
+introduced in protocol `2026-07-28`:
+
+1. The first `tools/call` returns an `input_required` result instead of
+   calling the service. It holds a form elicitation whose message names the
+   tool and shows its arguments, with no fields to fill in.
+2. The client shows that message to the user, who accepts, declines or
+   cancels.
+3. The client repeats the call with the answer in `inputResponses`. On
+   "accept" the service runs. On "decline" or "cancel" the result is an
+   error with code `permission_denied`, so the model knows the user said no.
+
+The model never sees this exchange; the client handles it. That is the point:
+unlike `destructiveHint` and other tool annotations, which only suggest that
+a client ask, the server itself refuses to run the call until the user
+approves it, even in a client set to always allow the server's tools.
+
+Clients that cannot take part get an error result with code
+`failed_precondition` and the tool does not run. That covers clients on
+protocol revisions before `2026-07-28`, which can only elicit over a session
+this stateless server does not keep, and clients that do not declare form
+elicitation. Check that the clients you care about support this before
+relying on `confirm` for tools they need.
+
+Confirmation guards against the model acting without the user's say-so. It
+is not authorization: the answer comes from the client, which a malicious
+client could fake. Keep permission checks in your service or auth layer.
+
 ## Results And Errors
 
 | Situation | MCP response |
@@ -141,6 +180,7 @@ service's own validation still enforces it.
 | The service returns a Connect error | an error result (`isError: true`) carrying the Connect error JSON (`code`, `message`, `details`) |
 | The arguments do not decode | an error result with code `invalid_argument` and the decoder's message |
 | The tool name is unknown | JSON-RPC error `-32602`, "tool not found" |
+| A `confirm` tool is called | see [Confirmation](#confirmation) |
 | `arguments` is absent | treated as `{}` |
 
 Error results let the model read the message and correct its arguments.
@@ -219,6 +259,7 @@ Without the last, each client has to be registered by hand.
 
 - Streaming RPCs as tools.
 - Output schemas (`outputSchema`); results are still structured JSON.
-- Tool annotations such as read-only hints.
+- Tool annotations such as read-only hints. Use `confirm` for tools that
+  should not run without the user's approval.
 - Protovalidate rules other than `required`, such as length or range limits.
 - stdio transport, MCP resources and prompts, and server-pushed messages.

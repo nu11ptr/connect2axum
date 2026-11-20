@@ -13,6 +13,7 @@ use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, Stream
 use rmcp::{ErrorData, RoleServer, ServerHandler};
 use uni_error::UniError;
 
+use crate::confirm::{Confirmation, confirm};
 use crate::error::{McpErrKind, McpResult};
 use crate::tool::{BoxHandler, ToolResult, Tools};
 
@@ -171,10 +172,12 @@ where
         let name = entry.tool.name.clone();
         validate_tool_name(name.as_ref())?;
         let tool = rmcp_tool(&entry.tool)?;
-        if handlers
-            .insert(name.clone(), (tool.clone(), entry.handler))
-            .is_some()
-        {
+        let registered = Registered {
+            tool: tool.clone(),
+            handler: entry.handler,
+            requires_confirmation: entry.tool.requires_confirmation,
+        };
+        if handlers.insert(name.clone(), registered).is_some() {
             return Err(UniError::from_kind_context(
                 McpErrKind::DuplicateToolName,
                 format!(
@@ -252,7 +255,13 @@ struct McpServer {
 struct ServerInner {
     info: ServerConfig,
     tools: Vec<rmcp::model::Tool>,
-    handlers: HashMap<SharedStr, (rmcp::model::Tool, BoxHandler)>,
+    handlers: HashMap<SharedStr, Registered>,
+}
+
+struct Registered {
+    tool: rmcp::model::Tool,
+    handler: BoxHandler,
+    requires_confirmation: bool,
 }
 
 impl ServerHandler for McpServer {
@@ -269,7 +278,10 @@ impl ServerHandler for McpServer {
     }
 
     fn get_tool(&self, name: &str) -> Option<rmcp::model::Tool> {
-        self.inner.handlers.get(name).map(|(tool, _)| tool.clone())
+        self.inner
+            .handlers
+            .get(name)
+            .map(|registered| registered.tool.clone())
     }
 
     async fn call_tool(
@@ -277,9 +289,16 @@ impl ServerHandler for McpServer {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let Some((_, handler)) = self.inner.handlers.get(request.name.as_ref()) else {
+        let Some(registered) = self.inner.handlers.get(request.name.as_ref()) else {
             return Err(ErrorData::invalid_params("tool not found", None));
         };
+        if registered.requires_confirmation {
+            match confirm(&request, &context) {
+                Confirmation::Granted => {}
+                Confirmation::Ask(input_required) => return Ok(input_required.into()),
+                Confirmation::Refused(result) => return Ok(call_tool_result(result).into()),
+            }
+        }
 
         // The HTTP transport stores the request's parts in the context, so
         // headers and extensions set by outer layers (such as an
@@ -290,7 +309,7 @@ impl ServerHandler for McpServer {
             .map(|parts| (parts.headers.clone(), parts.extensions.clone()))
             .unwrap_or_default();
         let ctx = connect2axum::request_context(headers, extensions);
-        let call = handler(ctx, request.arguments.unwrap_or_default());
+        let call = (registered.handler)(ctx, request.arguments.unwrap_or_default());
 
         // Stop work when the client cancels or disconnects.
         let result = match select(call, Box::pin(context.ct.cancelled())).await {

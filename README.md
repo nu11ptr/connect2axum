@@ -142,7 +142,7 @@ plugins:
 `protoc-gen-connect2mcp` exposes every unary RPC as an MCP tool, whether or not
 it has a `google.api.http` binding, with input schemas built from the request
 messages. A `connect2mcp.yaml` config can exclude RPCs, switch to an allowlist,
-or rename tools. The `connect2axum-mcp` crate serves the generated tools as an
+rename tools, or require the user to confirm each call to sensitive tools. The `connect2axum-mcp` crate serves the generated tools as an
 `axum::Router` over MCP's Streamable HTTP transport, and can publish OAuth
 discovery metadata for clients that log in.
 

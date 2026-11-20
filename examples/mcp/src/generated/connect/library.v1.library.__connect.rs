@@ -22,6 +22,14 @@ pub type OwnedDeleteBookRequestView = ::buffa::view::OwnedView<
 pub type OwnedDeleteBookResponseView = ::buffa::view::OwnedView<
     crate::proto::library::v1::__buffa::view::DeleteBookResponseView<'static>,
 >;
+///Shorthand for `OwnedView<ClearCatalogRequestView<'static>>`.
+pub type OwnedClearCatalogRequestView = ::buffa::view::OwnedView<
+    crate::proto::library::v1::__buffa::view::ClearCatalogRequestView<'static>,
+>;
+///Shorthand for `OwnedView<ClearCatalogResponseView<'static>>`.
+pub type OwnedClearCatalogResponseView = ::buffa::view::OwnedView<
+    crate::proto::library::v1::__buffa::view::ClearCatalogResponseView<'static>,
+>;
 ///Shorthand for `OwnedView<WatchBooksRequestView<'static>>`.
 pub type OwnedWatchBooksRequestView = ::buffa::view::OwnedView<
     crate::proto::library::v1::__buffa::view::WatchBooksRequestView<'static>,
@@ -128,6 +136,40 @@ for ::buffa::view::OwnedView<
         )
     }
 }
+impl ::connectrpc::Encodable<crate::proto::library::v1::ClearCatalogResponse>
+for crate::proto::library::v1::__buffa::view::ClearCatalogResponseView<'_> {
+    fn encode(
+        &self,
+        codec: ::connectrpc::CodecFormat,
+    ) -> ::std::result::Result<::buffa::bytes::Bytes, ::connectrpc::ConnectError> {
+        ::connectrpc::__codegen::encode_view_body(self, codec)
+    }
+}
+impl ::connectrpc::Encodable<crate::proto::library::v1::ClearCatalogResponse>
+for ::buffa::view::OwnedView<
+    crate::proto::library::v1::__buffa::view::ClearCatalogResponseView<'static>,
+> {
+    fn encode(
+        &self,
+        codec: ::connectrpc::CodecFormat,
+    ) -> ::std::result::Result<::buffa::bytes::Bytes, ::connectrpc::ConnectError> {
+        ::connectrpc::__codegen::encode_view_body(self.reborrow(), codec)
+    }
+    /// An `OwnedView` still holds the buffer it was decoded from, so
+    /// its large fields can be handed to the response body by
+    /// reference count instead of copied. The bare view impl above
+    /// cannot do this: it has borrows but no buffer to name.
+    fn encode_segments(
+        &self,
+        codec: ::connectrpc::CodecFormat,
+    ) -> ::std::result::Result<::connectrpc::EncodedBody, ::connectrpc::ConnectError> {
+        ::connectrpc::__codegen::encode_view_body_segments(
+            self.reborrow(),
+            self.bytes(),
+            codec,
+        )
+    }
+}
 /// Full service name for this service.
 pub const LIBRARY_SERVICE_SERVICE_NAME: &str = "library.v1.LibraryService";
 /// Static [`Spec`](::connectrpc::Spec) for the `AddBook` RPC, as seen by the server; the generated client passes it with [`origin`](::connectrpc::Spec::origin) `Client` (compare across sides with [`Spec::same_method`](::connectrpc::Spec::same_method)).
@@ -145,6 +187,12 @@ pub const LIBRARY_SERVICE_SEARCH_BOOKS_SPEC: ::connectrpc::Spec = ::connectrpc::
 /// Static [`Spec`](::connectrpc::Spec) for the `DeleteBook` RPC, as seen by the server; the generated client passes it with [`origin`](::connectrpc::Spec::origin) `Client` (compare across sides with [`Spec::same_method`](::connectrpc::Spec::same_method)).
 pub const LIBRARY_SERVICE_DELETE_BOOK_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::server(
         "/library.v1.LibraryService/DeleteBook",
+        ::connectrpc::StreamType::Unary,
+    )
+    .with_idempotency_level(::connectrpc::IdempotencyLevel::Unknown);
+/// Static [`Spec`](::connectrpc::Spec) for the `ClearCatalog` RPC, as seen by the server; the generated client passes it with [`origin`](::connectrpc::Spec::origin) `Client` (compare across sides with [`Spec::same_method`](::connectrpc::Spec::same_method)).
+pub const LIBRARY_SERVICE_CLEAR_CATALOG_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::server(
+        "/library.v1.LibraryService/ClearCatalog",
         ::connectrpc::StreamType::Unary,
     )
     .with_idempotency_level(::connectrpc::IdempotencyLevel::Unknown);
@@ -252,7 +300,8 @@ pub trait LibraryService: Send + Sync + 'static {
             > + Send + use<'a, Self>,
         >,
     > + Send;
-    /// Removes a book. Excluded from MCP in connect2mcp.yaml.
+    /// Removes a book. Over MCP, the user confirms each call (see
+    /// connect2mcp.yaml).
     ///
     /// `'a` lets the response body borrow from `&self` (e.g. server-resident state).
     ///
@@ -272,6 +321,29 @@ pub trait LibraryService: Send + Sync + 'static {
         Output = ::connectrpc::ServiceResult<
             impl ::connectrpc::Encodable<
                 crate::proto::library::v1::DeleteBookResponse,
+            > + Send + use<'a, Self>,
+        >,
+    > + Send;
+    /// Removes every book. Excluded from MCP in connect2mcp.yaml.
+    ///
+    /// `'a` lets the response body borrow from `&self` (e.g. server-resident state).
+    ///
+    /// `request` is borrowed from the request body and is valid for the
+    /// duration of the call; message fields are read directly on it
+    /// (zero-copy). The response cannot borrow from `request` — use
+    /// `.to_owned_message()` (or copy the specific fields) for anything
+    /// returned, stored, or moved into `tokio::spawn`.
+    fn clear_catalog<'a>(
+        &'a self,
+        ctx: ::connectrpc::RequestContext,
+        request: ::connectrpc::ServiceRequest<
+            '_,
+            crate::proto::library::v1::ClearCatalogRequest,
+        >,
+    ) -> impl ::std::future::Future<
+        Output = ::connectrpc::ServiceResult<
+            impl ::connectrpc::Encodable<
+                crate::proto::library::v1::ClearCatalogResponse,
             > + Send + use<'a, Self>,
         >,
     > + Send;
@@ -415,6 +487,35 @@ impl<S: LibraryService> LibraryServiceExt for S {
                 },
             )
             .with_spec(LIBRARY_SERVICE_DELETE_BOOK_SPEC)
+            .route_view(
+                LIBRARY_SERVICE_SERVICE_NAME,
+                "ClearCatalog",
+                {
+                    let svc = ::std::sync::Arc::clone(&self);
+                    ::connectrpc::view_handler_fn(move |
+                        ctx,
+                        req: ::buffa::view::OwnedView<
+                            crate::proto::library::v1::__buffa::view::ClearCatalogRequestView<
+                                'static,
+                            >,
+                        >,
+                        format|
+                    {
+                        let svc = ::std::sync::Arc::clone(&svc);
+                        async move {
+                            let sreq = ::connectrpc::ServiceRequest::<
+                                crate::proto::library::v1::ClearCatalogRequest,
+                            >::from_parts(req.reborrow(), req.bytes());
+                            svc.clear_catalog(ctx, sreq)
+                                .await?
+                                .encode::<
+                                    crate::proto::library::v1::ClearCatalogResponse,
+                                >(format)
+                        }
+                    })
+                },
+            )
+            .with_spec(LIBRARY_SERVICE_CLEAR_CATALOG_SPEC)
             .route_view_server_stream::<
                 _,
                 _,
@@ -515,6 +616,12 @@ impl<T: LibraryService> ::connectrpc::Dispatcher for LibraryServiceServer<T> {
                         .with_spec(LIBRARY_SERVICE_DELETE_BOOK_SPEC),
                 )
             }
+            "ClearCatalog" => {
+                Some(
+                    ::connectrpc::dispatcher::codegen::MethodDescriptor::unary(false)
+                        .with_spec(LIBRARY_SERVICE_CLEAR_CATALOG_SPEC),
+                )
+            }
             "WatchBooks" => {
                 Some(
                     ::connectrpc::dispatcher::codegen::MethodDescriptor::server_streaming()
@@ -594,6 +701,28 @@ impl<T: LibraryService> ::connectrpc::Dispatcher for LibraryServiceServer<T> {
                     svc.delete_book(ctx, req)
                         .await?
                         .encode::<crate::proto::library::v1::DeleteBookResponse>(format)
+                })
+            }
+            "ClearCatalog" => {
+                let svc = ::std::sync::Arc::clone(&self.inner);
+                Box::pin(async move {
+                    let body = ::connectrpc::dispatcher::codegen::request_proto_bytes::<
+                        crate::proto::library::v1::ClearCatalogRequest,
+                    >(request.encoded()?, format)?;
+                    let req: crate::proto::library::v1::__buffa::view::ClearCatalogRequestView<
+                        '_,
+                    > = ::connectrpc::dispatcher::codegen::decode_borrowed_request_view(
+                        &body,
+                        ctx.decode_options(),
+                    )?;
+                    let req = ::connectrpc::ServiceRequest::<
+                        crate::proto::library::v1::ClearCatalogRequest,
+                    >::from_parts(&req, &body);
+                    svc.clear_catalog(ctx, req)
+                        .await?
+                        .encode::<
+                            crate::proto::library::v1::ClearCatalogResponse,
+                        >(format)
                 })
             }
             _ => ::connectrpc::dispatcher::codegen::unimplemented_unary(path),
@@ -868,6 +997,51 @@ where
                 &self.transport,
                 &self.config,
                 LIBRARY_SERVICE_DELETE_BOOK_SPEC
+                    .with_origin(::connectrpc::SpecOrigin::Client),
+                request,
+                options,
+            )
+            .await
+    }
+    /// Call the ClearCatalog RPC. Sends a request to /library.v1.LibraryService/ClearCatalog.
+    pub async fn clear_catalog(
+        &self,
+        request: crate::proto::library::v1::ClearCatalogRequest,
+    ) -> Result<
+        ::connectrpc::client::UnaryResponse<
+            ::buffa::view::OwnedView<
+                crate::proto::library::v1::__buffa::view::ClearCatalogResponseView<
+                    'static,
+                >,
+            >,
+        >,
+        ::connectrpc::ConnectError,
+    > {
+        self.clear_catalog_with_options(
+                request,
+                ::connectrpc::client::CallOptions::default(),
+            )
+            .await
+    }
+    /// Call the ClearCatalog RPC with explicit per-call options. Options override [`ClientConfig`](::connectrpc::client::ClientConfig) defaults.
+    pub async fn clear_catalog_with_options(
+        &self,
+        request: crate::proto::library::v1::ClearCatalogRequest,
+        options: ::connectrpc::client::CallOptions,
+    ) -> Result<
+        ::connectrpc::client::UnaryResponse<
+            ::buffa::view::OwnedView<
+                crate::proto::library::v1::__buffa::view::ClearCatalogResponseView<
+                    'static,
+                >,
+            >,
+        >,
+        ::connectrpc::ConnectError,
+    > {
+        ::connectrpc::client::call_unary(
+                &self.transport,
+                &self.config,
+                LIBRARY_SERVICE_CLEAR_CATALOG_SPEC
                     .with_origin(::connectrpc::SpecOrigin::Client),
                 request,
                 options,

@@ -39,6 +39,8 @@ pub mod __buffa {
         reg.register_json_any(super::__SEARCH_BOOKS_RESPONSE_JSON_ANY);
         reg.register_json_any(super::__DELETE_BOOK_REQUEST_JSON_ANY);
         reg.register_json_any(super::__DELETE_BOOK_RESPONSE_JSON_ANY);
+        reg.register_json_any(super::__CLEAR_CATALOG_REQUEST_JSON_ANY);
+        reg.register_json_any(super::__CLEAR_CATALOG_RESPONSE_JSON_ANY);
         reg.register_json_any(super::__WATCH_BOOKS_REQUEST_JSON_ANY);
     }
 }
@@ -70,6 +72,14 @@ pub use self::__buffa::view::DeleteBookRequestOwnedView;
 pub use self::__buffa::view::DeleteBookResponseView;
 #[doc(inline)]
 pub use self::__buffa::view::DeleteBookResponseOwnedView;
+#[doc(inline)]
+pub use self::__buffa::view::ClearCatalogRequestView;
+#[doc(inline)]
+pub use self::__buffa::view::ClearCatalogRequestOwnedView;
+#[doc(inline)]
+pub use self::__buffa::view::ClearCatalogResponseView;
+#[doc(inline)]
+pub use self::__buffa::view::ClearCatalogResponseOwnedView;
 #[doc(inline)]
 pub use self::__buffa::view::WatchBooksRequestView;
 #[doc(inline)]

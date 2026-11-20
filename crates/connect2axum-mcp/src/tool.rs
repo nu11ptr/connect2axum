@@ -17,6 +17,7 @@ pub struct Tool {
     pub(crate) name: SharedStr,
     pub(crate) description: Option<SharedStr>,
     pub(crate) input_schema: SharedStr,
+    pub(crate) requires_confirmation: bool,
 }
 
 impl Tool {
@@ -29,6 +30,7 @@ impl Tool {
             name: name.into(),
             description: None,
             input_schema: input_schema.into(),
+            requires_confirmation: false,
         }
     }
 
@@ -39,10 +41,29 @@ impl Tool {
         self
     }
 
+    /// Requires the user to confirm each call before the service runs.
+    ///
+    /// The server asks the client to show the user the tool name and
+    /// arguments, and runs the call only if the user accepts. Clients that
+    /// cannot ask, which includes every client on a protocol revision before
+    /// `2026-07-28`, get an error result instead, so the tool never runs
+    /// unconfirmed.
+    #[must_use]
+    pub fn requires_confirmation(mut self) -> Self {
+        self.requires_confirmation = true;
+        self
+    }
+
     /// The tool name.
     #[must_use]
     pub fn name(&self) -> &str {
         self.name.as_ref()
+    }
+
+    /// Whether calls need the user's confirmation.
+    #[must_use]
+    pub fn needs_confirmation(&self) -> bool {
+        self.requires_confirmation
     }
 }
 

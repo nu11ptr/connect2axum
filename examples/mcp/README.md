@@ -13,13 +13,14 @@ Streamable HTTP at `http://localhost:8003/mcp`.
 ## What It Shows
 
 [`proto/library/v1/library.proto`](proto/library/v1/library.proto) declares
-four RPCs:
+five RPCs:
 
 | RPC | REST | MCP tool |
 | --- | --- | --- |
 | `AddBook` | `POST /v1/books` | `LibraryService_AddBook` |
 | `SearchBooks` | none | `LibraryService_SearchBooks` |
-| `DeleteBook` | none | excluded in `connect2mcp.yaml` |
+| `DeleteBook` | none | `LibraryService_DeleteBook`, confirmed by the user on each call |
+| `ClearCatalog` | none | excluded in `connect2mcp.yaml` |
 | `WatchBooks` (server streaming) | none | skipped: MCP tools are unary only |
 
 The generated tool schemas exercise:
@@ -64,11 +65,14 @@ alongside the application's own token check:
 ## Tests
 
 `cargo test -p mcp` drives `tools/list` and `tools/call` through the full
-router as raw JSON-RPC.
+router as raw JSON-RPC, including the confirmation round trip for
+`DeleteBook`.
 
 The example was also checked with a real MCP client, `rmcp` 3.11.0's
-Streamable HTTP client, negotiating protocol revisions `2026-07-28`,
-`2025-06-18` and `2024-11-05` against the running server. All three listed
-both tools, added a book, and received a structured `invalid_argument` error
-for empty arguments. The server is stateless, so older revisions complete
-their `initialize` handshake without being given a session.
+Streamable HTTP client. Using `server/discover` on `2026-07-28`, it added a
+book and deleted it after accepting the confirmation; declining returned
+`permission_denied`, and a client without form elicitation got
+`failed_precondition`. Using `initialize` on `2025-11-25`, `2025-06-18` and
+`2024-11-05`, it listed and called tools; the server is stateless, so these
+revisions complete the handshake without a session, and `DeleteBook` returns
+`failed_precondition` because they cannot be asked to confirm.
