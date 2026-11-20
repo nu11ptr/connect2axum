@@ -1,6 +1,6 @@
 [package]
 name = "connect2axum-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Runtime for generated MCP (Model Context Protocol) tool wrappers over ConnectRPC services"
 readme = "../../README.md"
 authors.workspace = true
